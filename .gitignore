@@ -1,3 +1,5 @@
 .cache/clangd/index
 benchmarks
 build
+docs/html
+docs/latex
