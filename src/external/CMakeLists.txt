@@ -3,7 +3,7 @@ set(MKL_ARCH "intel64")
 set(MKL_LINK "dynamic")
 set(MKL_INTERFACE "lp64")
 
-find_package(MKL QUIET PATHS /opt/intel/oneapi/mkl/latest)
+find_package(MKL QUIET PATHS YOURMKLPATHHERE)
 
 add_library(raas::mkl INTERFACE IMPORTED)
 #target_include_directories(raas::mkl INTERFACE ${MKL_INCLUDE_DIR})

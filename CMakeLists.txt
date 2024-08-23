@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.10)
 project(RAAS)
 
 # llvm required packages
-set(LLVM_DIR /mnt/linux/doutorado/llvm-installs/llvm-fork/build/lib/cmake/llvm)
+set(LLVM_DIR YOURLLVMDIRHERE)
 find_package(LLVM REQUIRED CONFIG)
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
@@ -36,7 +36,7 @@ set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # TODO: set to release for real tests
-set (CMAKE_BUILD_TYPE Debug)
+set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
 add_subdirectory(src/external)
