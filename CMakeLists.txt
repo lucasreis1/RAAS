@@ -15,7 +15,7 @@ target_link_libraries(raas PRIVATE JIT)
 target_compile_options(raas PRIVATE "-fno-rtti")
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
-find_package(pybind11 CONFIG REQUIRED)
+add_subdirectory(pybind11)
 add_executable(py_emb src/python_embedder.cpp src/embedding.cpp)
 target_link_libraries(py_emb PRIVATE Python::Python JIT)
 pybind11_add_module(raas_support MODULE src/raas_support.cpp)
