@@ -8,7 +8,9 @@ find_package(LLVM REQUIRED CONFIG)
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
 include_directories(${LLVM_INCLUDE_DIRS})
-#add_library(embedding STATIC src/embedding.cpp)
+
+list(APPEND CMAKE_INSTALL_RPATH ${CMAKE_INSTALL_PREFIX}/lib)
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
 add_executable(raas src/RAAS.cpp)
 target_link_libraries(raas PRIVATE JIT)
@@ -40,6 +42,16 @@ set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
 add_subdirectory(src/external)
+
+install(TARGETS raas_support JIT instrumentFn
+  RUNTIME DESTINATION bin
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib/static
+)
+
+install(TARGETS raas py_emb
+  RUNTIME DESTINATION bin
+)
 
 #FUTURE NOTES:
 # if after setting to Release, you are missing symbols, CMake probably sets visibility for symbols to default. 
