@@ -45,5 +45,5 @@ add_library(common STATIC common.c)
 #target_compile_options(common PUBLIC $<TARGET_PROPERTY:MKL::MKL,INTERFACE_COMPILE_OPTIONS>)
 target_link_libraries(common raas::mkl)
 
-add_library(approx_gemm SHARED approx_gemm.cpp)
+add_library(approx_gemm STATIC approx_gemm.cpp)
 target_link_libraries(approx_gemm PRIVATE common)

@@ -5,7 +5,7 @@ set(NO_RTTI "-fno-rtti")
 add_definitions(${NO_RTTI})
 
 
-add_compile_definitions(RUNTIME_PATH="/mnt/linux/doutorado/llvm-installs/llvm-fork/build/lib/clang/18/lib/x86_64-unknown-linux-gnu/liborc_rt.a")
+add_compile_definitions(RUNTIME_PATH="${LLVM_DIR}/../../clang/18/lib/x86_64-unknown-linux-gnu/liborc_rt.a")
 add_compile_definitions(EMBEDDING)
 
 add_library (JIT SHARED JIT.cpp ApproxLayer.cpp ForbiddenApproximations.cpp EvaluationSystem.cpp SimpleEvaluator.cpp misc/CustomDemangler.cpp)
