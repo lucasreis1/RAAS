@@ -41,8 +41,6 @@ if(UNIX)
 endif()
 
 add_library(common STATIC common.c)
-#target_include_directories(common PUBLIC $<TARGET_PROPERTY:MKL::MKL,INTERFACE_INCLUDE_DIRECTORIES>)
-#target_compile_options(common PUBLIC $<TARGET_PROPERTY:MKL::MKL,INTERFACE_COMPILE_OPTIONS>)
 target_link_libraries(common raas::mkl)
 
 add_library(approx_gemm STATIC approx_gemm.cpp)

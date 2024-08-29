@@ -1,9 +1,16 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.24)
 
 project(RAAS)
 
+if (NOT DEFINED LLVM_DIR)
+  if (EXISTS /usr/local/lib/cmake/llvm)
+    set(LLVM_DIR "/usr/local/lib/cmake/llvm")
+  else()
+    message(WARNING "LLVM_DIR is not set. If compilation fails, consider specifying it using -DLLVM_DIR=/path/to/llvm/lib/cmake")
+  endif()
+endif()
+
 # llvm required packages
-set(LLVM_DIR YOURLLVMDIRHERE)
 find_package(LLVM REQUIRED CONFIG)
 separate_arguments(LLVM_DEFINITIONS_LIST NATIVE_COMMAND ${LLVM_DEFINITIONS})
 add_definitions(${LLVM_DEFINITIONS_LIST})
@@ -22,22 +29,16 @@ add_executable(py_emb src/python_embedder.cpp src/embedding.cpp)
 target_link_libraries(py_emb PRIVATE Python::Python JIT)
 pybind11_add_module(raas_support MODULE src/raas_support.cpp)
 
-#target_link_options(py_emb PRIVATE "-Wl,-export-dynamic")
-#set_property (TARGET py_emb PROPERTY CXX_VISIBILITY_PRESET default)
-
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED 17)
 
-set (CMAKE_CXX_COMPILER clang++)
-set (CMAKE_C_COMPILER  clang)
+if (${CMAKE_C_COMPILER} STREQUAL "clang")
+  set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
+endif()
 
-set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
-
-#list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
-
+# export compile commands by default
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# TODO: set to release for real tests
 set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
