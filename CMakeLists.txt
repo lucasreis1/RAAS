@@ -54,6 +54,8 @@ install(TARGETS raas py_emb
   RUNTIME DESTINATION bin
 )
 
+INSTALL(PROGRAMS prepare_library.sh DESTINATION bin)
+
 #FUTURE NOTES:
 # if after setting to Release, you are missing symbols, CMake probably sets visibility for symbols to default. 
 # This means some symbols required for this program to work crash. Use:
