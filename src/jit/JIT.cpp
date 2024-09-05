@@ -195,14 +195,18 @@ ApproxJIT::Create(std::string evalModuleFile) {
   auto ES = std::make_unique<ExecutionSession>(std::move(*EPC));
 
   auto EPCIU = EPCIndirectionUtils::Create(ES->getExecutorProcessControl());
-  if (!EPCIU)
+  if (!EPCIU) {
+    ExitOnErr(ES->endSession());
     return EPCIU.takeError();
+  }
 
   (*EPCIU)->createLazyCallThroughManager(
       *ES, ExecutorAddr::fromPtr(&handleLazyCallThroughError));
 
-  if (auto Err = setUpInProcessLCTMReentryViaEPCIU(**EPCIU))
+  if (auto Err = setUpInProcessLCTMReentryViaEPCIU(**EPCIU)) {
+    ExitOnErr(ES->endSession());
     return std::move(Err);
+  }
 
   JITTargetMachineBuilder JTMB(
       ES->getExecutorProcessControl().getTargetTriple());
@@ -210,16 +214,22 @@ ApproxJIT::Create(std::string evalModuleFile) {
   auto DL = JTMB.getDefaultDataLayoutForTarget();
 
   if (!DL) {
+    ExitOnErr(ES->endSession());
     return DL.takeError();
   }
 
   auto evalModule = loadModule(evalModuleFile);
-  if (!evalModule)
+  if (!evalModule) {
+    ExitOnErr(ES->endSession());
     return evalModule.takeError();
+  }
+
   auto demangler = CustomDemangler::Create(evalModule->getModuleUnlocked());
 
-  if (!demangler)
+  if (!demangler) {
+    ExitOnErr(ES->endSession());
     return demangler.takeError();
+  }
 
   return std::make_unique<ApproxJIT>(std::move(ES), std::move(*EPCIU),
                                      std::move(JTMB), std::move(*DL),
