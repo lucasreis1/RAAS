@@ -36,6 +36,7 @@ if (${CMAKE_C_COMPILER} STREQUAL "clang")
   set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
 endif()
 
+
 # export compile commands by default
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -43,11 +44,16 @@ set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
 add_subdirectory(src/external)
+message(${Python_SITELIB})
 
-install(TARGETS raas_support JIT instrumentFn
+install(TARGETS JIT instrumentFn
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib/static
+)
+
+install(TARGETS raas_support
+  LIBRARY DESTINATION ${Python_SITELIB}
 )
 
 install(TARGETS raas py_emb
