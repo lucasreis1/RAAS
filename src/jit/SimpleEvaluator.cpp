@@ -224,11 +224,22 @@ std::string formatText(const int width, const char fill, T value) {
   return ss.str();
 }
 
-std::string SimpleEvaluator::getRankedConfigurations() {
+std::string SimpleEvaluator::getRankedConfigurations(bool csv_format) {
   std::sort(
       opportunitiesWrapper.begin(), opportunitiesWrapper.end(),
       [](SimpleEvaluator::approximationInfo a,
          SimpleEvaluator::approximationInfo b) { return a.score > b.score; });
+
+  std::stringstream ss;
+  if (csv_format) {
+    ss << "score,function,technique,parameter,speedup" << std::endl;
+    for (auto &aa : opportunitiesWrapper)
+      ss << aa.score << "," << aa.parent->functionName << ","
+         << techniqueNameMap.at(aa.AT) << "," << aa.idealConfig.second << ","
+         << aa.idealConfig.first << std::endl;
+
+    return ss.str();
+  }
 
   size_t maxFnSize = 0;
   for (auto &II : oppPerFunctionMap)
@@ -236,7 +247,6 @@ std::string SimpleEvaluator::getRankedConfigurations() {
 
   maxFnSize += 2;
 
-  std::stringstream ss;
   const char fill = ' ';
   const int restWidth = 20;
 

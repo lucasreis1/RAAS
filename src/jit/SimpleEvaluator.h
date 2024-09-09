@@ -12,7 +12,7 @@ public:
 
   bool wasUpdatedInLastEvaluation(std::string functionName);
   void unmarkAsUpdated(std::string functionName);
-  std::string getRankedConfigurations();
+  std::string getRankedConfigurations(bool csv_format);
 
 private:
   configurationPerTechniqueMap

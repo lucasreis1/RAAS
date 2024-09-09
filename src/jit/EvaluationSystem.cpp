@@ -121,7 +121,7 @@ double EvaluationSystem::getLastError() {
   return evaluator->APQ.getErrors().second;
 }
 
-void EvaluationSystem::printRankedOpportunities() {
-  errs() << evaluator->getRankedConfigurations();
+void EvaluationSystem::printRankedOpportunities(bool csv_format) {
+  errs() << evaluator->getRankedConfigurations(csv_format);
   return;
 }

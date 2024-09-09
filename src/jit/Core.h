@@ -100,9 +100,9 @@ public:
   virtual void unmarkAsUpdated(std::string functionName) = 0;
 
   /* print configurations sorted by score. This method will sort the original
-   * list and must only be called before the program ends.
+   * list and must only be called after evaluation ends.
    */
-  virtual std::string getRankedConfigurations() = 0;
+  virtual std::string getRankedConfigurations(bool csv_format) = 0;
 
   class approximationQuality {
     double preciseTime = 0.0;
@@ -193,7 +193,7 @@ public:
    * iterate over all approximate functions and print their opportunities sorted
    * by score
    */
-  void printRankedOpportunities();
+  void printRankedOpportunities(bool csv_format = false);
 
 private:
   std::unique_ptr<ConfigurationEvaluation> evaluator;
@@ -203,7 +203,6 @@ private:
   // iterates over the instructions inside the function to find approximation
   // opportunities for each technique.
   // returns a map that translates approxTechnique -> config vector
-  // TODO: replace this with a generic for loop based on the enum
   configurationPerTechniqueMap populateApproximationRate(const Function &F);
 };
 

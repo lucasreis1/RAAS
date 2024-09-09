@@ -54,7 +54,7 @@ private:
   JITDylib &MainJD;
   // support dylib (standard symbols from process + original/instrumented
   // symbols for approximable functions)
-  //JITDylib &SupportJD;
+  // JITDylib &SupportJD;
 
   // DSO handles for initalizers
   DenseMap<orc::JITDylib *, orc::ExecutorAddr> DSOHandles;
@@ -95,7 +95,9 @@ public:
   static Expected<std::unique_ptr<ApproxJIT>>
   Create(std::string evalModuleFile);
 
-  Expected<ExecutorSymbolDef> lookup(StringRef Name, JITDylibLookupFlags Flags = JITDylibLookupFlags::MatchExportedSymbolsOnly);
+  Expected<ExecutorSymbolDef>
+  lookup(StringRef Name, JITDylibLookupFlags Flags =
+                             JITDylibLookupFlags::MatchExportedSymbolsOnly);
   Expected<ExecutorSymbolDef> lookupOrLoadSymbol(StringRef Name,
                                                  StringRef ModuleLoc);
 
@@ -125,7 +127,7 @@ public:
   static Expected<ThreadSafeModule> loadModule(std::string bitcodeFile);
 
   void setForbiddenApproxList(std::unique_ptr<ForbiddenApproximations> fapList);
- 
+
   /**
    * run main function from module
    */
@@ -134,13 +136,13 @@ public:
   }
 
   /**
-   * Print configuration info from the evalution system. This is arbitrary 
-   * and will depend on the evaluator selected. Clients must ensure this is 
-   * only called after converge, as this MAY reorder 
+   * Print configuration info from the evalution system. This is arbitrary
+   * and will depend on the evaluator selected. Clients must ensure this is
+   * only called after convergence, as this MAY reorder
    * data structures that store configurations
    */
-  void printRankedOpportunities() {
-    evaluator.printRankedOpportunities();
+  void printRankedOpportunities(bool csv_format = false) {
+    evaluator.printRankedOpportunities(csv_format);
   }
 };
 

@@ -100,8 +100,8 @@ int main(int argc, char **argv) {
     delete[] argv_mod;
   auto ret_val = Py_RunMain();
 
-  // print opportunities after run
-  printOpportunities();
+  // print opportunities in csv format after run
+  printOpportunities(true);
 
   dlclose(lib);
 
