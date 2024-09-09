@@ -42,6 +42,11 @@ private:
                       OpportunitiesPerFunction *parent)
         : index(idx), maxParameter(maxParameter), AT(T), parent(parent) {}
   };
+  // minimum required speedup for a new configuration to attain.
+  // As we can't always get the last speedup as the ideal because new
+  // configs are tried side-by-side, we store the min. expected speedup here.
+  unsigned minRequiredSpeedup = 1.;
+
   int iterationCount = 0;
   int heuristicalCount = 0;
 

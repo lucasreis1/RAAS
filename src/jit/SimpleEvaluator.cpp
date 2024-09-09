@@ -83,7 +83,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           // do not touch opportunity again if error is above limit or error is
           // NaN
           auto lastError = APQ.getErrors().second;
-          if (lastError > ERROR_LIMIT or isNan(lastError)) 
+          if (lastError > ERROR_LIMIT or isNan(lastError))
             lastModifiedOp.foundOptimal = true;
         }
       }
@@ -106,7 +106,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
         // if we are evaluating this opportunity for the first time, our target
         // is at least the same speedup as before this opportunity showed up
         if (heuristicalCount == 0 and lastCheckedOpportunity->parameter == 0) {
-          lastCheckedOpportunity->idealConfig.first = APQ.getAvgSpeedup();
+          lastCheckedOpportunity->idealConfig.first = minRequiredSpeedup;
           lastCheckedOpportunity->speedup = .0;
           lastCheckedOpportunity->parameter = 1;
           lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
@@ -134,9 +134,8 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           }
           // if we are still not at maximum parameter and still achieving
           // speedups, keep increasing the parameter
-          if (lastCheckedOpportunity->speedup > 1. &&
-              lastCheckedOpportunity->parameter !=
-                  lastCheckedOpportunity->maxParameter) {
+          if (lastCheckedOpportunity->parameter !=
+              lastCheckedOpportunity->maxParameter) {
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
@@ -146,6 +145,10 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
                 lastCheckedOpportunity->idealConfig.second;
             lastCheckedOpportunity->foundOptimal = true;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
+
+            // the new minRequiredSpeedup is the one attained by the best rate
+            // of this config
+            minRequiredSpeedup = lastCheckedOpportunity->idealConfig.first;
             // reset the opportunity to null so we can search new ones
             lastCheckedOpportunity = nullptr;
           }

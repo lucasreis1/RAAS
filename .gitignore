@@ -3,3 +3,7 @@ benchmarks
 build
 docs/html
 docs/latex
+evaluation
+inputs
+tests
+.jit_time.txt
