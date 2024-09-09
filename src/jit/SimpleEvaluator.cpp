@@ -270,8 +270,8 @@ std::string SimpleEvaluator::getRankedConfigurations() {
     ss << " | " << formatText(12, fill, aa.score) << " | ";
     ss << formatText(maxFnSize, fill, aa.parent->functionName) << " | ";
     ss << formatText(25, fill, techniqueNameMap.at(aa.AT)) << " | ";
-    ss << formatText(9, fill, aa.parameter) << " | ";
-    ss << formatText(9, fill, aa.speedup) << " | ";
+    ss << formatText(9, fill, aa.idealConfig.second) << " | ";
+    ss << formatText(9, fill, aa.idealConfig.first) << " | ";
     ss << std::endl;
   }
 

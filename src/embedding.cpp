@@ -66,3 +66,7 @@ bool start_JIT(std::string evalBCFile, std::string appModulesFile,
 
   return true;
 }
+
+void printOpportunities() {
+  J->printRankedOpportunities();
+}
