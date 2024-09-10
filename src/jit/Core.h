@@ -1,8 +1,9 @@
 #pragma once
 #include <map>
 
+#include "llvm/ADT/StringMap.h"
 #include "llvm/IR/Function.h"
-#include "llvm/IR/PassManager.h"
+#include "llvm/Support/ErrorOr.h"
 
 #define IPO_PIPELINE                                                           \
   "annotation2metadata,forceattrs,inferattrs,coro-early,function<eager-inv>("  \
@@ -46,7 +47,7 @@
 //  "globaldce,constmerge,cg-profile,rel-lookup-table-converter,function("       \
 //  "annotation-remarks),verify"
 #define ERROR_LIMIT 0.3
-enum approxTechnique { FAP, LPAR, LPERF , GAP };
+enum approxTechnique { FAP, LPAR, LPERF, GAP };
 
 // translate enum to string with technique name
 static const std::map<approxTechnique, std::string> techniqueNameMap = {
@@ -91,7 +92,7 @@ public:
   virtual ~ConfigurationEvaluation() {}
 
   // optional method used to inform if we are already at optimal configuration
-  bool isOptimal() { return foundOptimal; }
+  bool achievedConvergence() { return foundOptimal; }
 
   // returns true if this function received an update in approximation on the
   // last evaluation iteration
@@ -147,8 +148,8 @@ protected:
 
 /**
  * this class is the basis for the evaluation system, providing general
- * information on approximable configurations and controlling the evaluation
- * subsystem
+ * information on approximable configurations and controlling the
+ * ConfigurationEvaluation subsystem
  */
 class EvaluationSystem {
 public:
@@ -162,7 +163,6 @@ public:
   bool findFunction(const Function &F);
 
   // checks if the function is approximable
-  // TODO: extend these for different techniques
   static bool isApproximable(const Function &F);
   static void printApproximationOpportunities(const Function &F);
 

@@ -48,12 +48,12 @@ extern "C"
 #ifdef __cplusplus
 extern "C"
 #endif
-    void
+    bool
     $raas_evaluation() {
   if (not J)
     llvm_unreachable("JIT not initialied during reevaluation call!");
 
-  J->approxReevaluation();
+  return J->approxReevaluation();
 }
 
 namespace llvm {
@@ -379,7 +379,7 @@ double measure_time() {
   return time;
 }
 
-void ApproxJIT::approxReevaluation() {
+bool ApproxJIT::approxReevaluation() {
   double time = measure_time();
   // this is the first loop, we will use it only to store precise output
   // values. We do not want time measures from this loop
@@ -417,9 +417,8 @@ void ApproxJIT::approxReevaluation() {
     // suggested configuration
     ExitOnErr(APLayer.updateApproximations());
   }
-  // reset all counters to true, so we can jump to the JIT when we se an
-  // approximable function
   this->numberOfLoops++;
+  return evaluator.getConfigEvaluator()->achievedConvergence();
 }
 
 Expected<ThreadSafeModule> ApproxJIT::loadModule(std::string bitcodeFile) {

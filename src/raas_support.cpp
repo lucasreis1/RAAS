@@ -17,7 +17,7 @@ static inline void RAAS_roi_end()  {
   fclose(f);
 }
 
-extern "C" void $raas_evaluation() __attribute__((weak));
+extern "C" bool $raas_evaluation() __attribute__((weak));
 
 PYBIND11_MODULE(raas_support, m) {
   m.doc() = "RAAS support functions";

@@ -103,9 +103,10 @@ public:
 
   /**
    * collects output information and starts decision making to re-select
-   * approximations
+   * approximations. Returns if we already achieved convergence (the best
+   * configuration for this application and input has ben found).
    */
-  void approxReevaluation();
+  bool approxReevaluation();
 
   // platform shenanigans
   Error initializePlatform();
