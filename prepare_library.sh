@@ -41,8 +41,8 @@ for file in "${@:3}"; do
   fi
   $debug opt -load-pass-plugin $PASS_PLUGIN --passes="annotation2metadata,forceattrs,inferattrs,coro-early,function<eager-inv>(lower-expect,sroa<modify-cfg>,early-cse<>,callsite-splitting),openmp-opt,ipsccp,called-value-propagation,globalopt,function(mem2reg),require<globals-aa>,function(invalidate<aa>),require<profile-summary>,cgscc(devirt<4>(inline<only-mandatory>,inline,function-attrs,argpromotion,openmp-opt-cgscc,function<eager-inv>(sroa<modify-cfg>,early-cse<memssa>,speculative-execution,correlated-propagation,libcalls-shrinkwrap,tailcallelim,reassociate,require<opt-remark-emit>,sroa<modify-cfg>,vector-combine,mldst-motion<no-split-footer-bb>,sccp,bdce,correlated-propagation,adce,memcpyopt,dse,coro-elide),coro-split)),deadargelim,coro-cleanup,globalopt,globaldce,elim-avail-extern,rpo-function-attrs,recompute-globalsaa,function<eager-inv>(float2int,lower-constant-intrinsics,loop-distribute,inject-tli-mappings,slp-vectorizer,vector-combine,transform-warning,sroa<preserve-cfg>,require<opt-remark-emit>,alignment-from-assumptions,loop-sink,instsimplify,div-rem-pairs,tailcallelim),globaldce,constmerge,cg-profile,rel-lookup-table-converter,function(annotation-remarks),instrappfn<$IS_APPROX>,verify" $file -o $file
  
-  cp $file $TMPDIR
   status=$?
+  cp $file $TMPDIR
   # revert copy if failed to apply pass
   if test $status -ne 0 
   then

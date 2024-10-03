@@ -212,9 +212,6 @@ public:
 
   // add global values required by the JIT
   void addGlobalValues(Module &M) {
-    // create function -> $jump_to_jit("fn_name", "loc/to/bcfile.bc");
-    // Function::Create(FunctionType::get(Int64, {Int8Ptr}, false),
-    //                 GlobalValue::ExternalWeakLinkage, "$jump_to_jit", M);
     Function::Create(FunctionType::get(Type::getInt64Ty(M.getContext()),
                                        {PointerType::get(M.getContext(), 0)},
                                        false),
