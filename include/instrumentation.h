@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdio.h>
 #include <sys/time.h>
 
@@ -6,9 +8,9 @@
 
 // function wrappers to hide the pointer parameter
 #ifdef __cplusplus
-extern "C" void $raas_evaluation();
+extern "C" void $raas_evaluation() __attribute((weak));
 #else
-void $raas_evaluation();
+void $raas_evaluation() __attribute((weak));
 #endif
 
 inline __attribute__((always_inline)) void RAAS_evaluate_output() {

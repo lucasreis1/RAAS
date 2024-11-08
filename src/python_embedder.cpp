@@ -37,26 +37,8 @@ int main(int argc, char **argv) {
   if (argc < 2) {
     fprintf(stderr, "missing argument for script name!\n");
     fprintf(stderr,
-            "Usage: ./a.out <evaluation_mod.bc> <script_file.py> <args...>\n");
+            "Usage: ./a.out --eval_mod <evaluation_mod.bc> <script_file.py> <args...>\n");
     return 1;
-  }
-
-  // file with list of modules separated by new line
-  std::string approximableModulesFile = "";
-  std::string preciseModulesFile = "";
-  std::string forbiddenApproximationsFile = "";
-
-  // arg parsing
-  int i;
-  for (i = 2; i < argc; ++i) {
-    if (strcmp(argv[i], "--app_mod") == 0)
-      approximableModulesFile = argv[++i];
-    else if (strcmp(argv[i], "--prec_mod") == 0)
-      preciseModulesFile = argv[++i];
-    else if (strcmp(argv[i], "--forbidden_approx") == 0)
-      forbiddenApproximationsFile = argv[++i];
-    else
-      break;
   }
 
   auto *lib = dlopen("libtorch_cpu.so", RTLD_LAZY | RTLD_GLOBAL);
@@ -65,9 +47,8 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  //  start JIT with argv[1] as evaluation module file
-  bool ret = start_JIT(argv[1], approximableModulesFile, preciseModulesFile,
-                       forbiddenApproximationsFile);
+  int i;
+  auto ret = initializeEmbedding(argc, argv, i);
 
   PyStatus status;
   char **argv_mod = nullptr;
@@ -100,8 +81,7 @@ int main(int argc, char **argv) {
     delete[] argv_mod;
   auto ret_val = Py_RunMain();
 
-  // print opportunities in csv format after run
-  printOpportunities(true);
+  endEmbedding();
 
   dlclose(lib);
 

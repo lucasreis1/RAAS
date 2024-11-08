@@ -8,6 +8,8 @@ if (NOT DEFINED LLVM_DIR)
   else()
     message(WARNING "LLVM_DIR is not set. If compilation fails, consider specifying it using -DLLVM_DIR=/path/to/llvm/lib/cmake")
   endif()
+else()
+  message(STATUS "LLVM_DIR=${LLVM_DIR}")
 endif()
 
 # llvm required packages
@@ -25,12 +27,18 @@ target_compile_options(raas PRIVATE "-fno-rtti")
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 add_subdirectory(pybind11)
-add_executable(py_emb src/python_embedder.cpp src/embedding.cpp)
-target_link_libraries(py_emb PRIVATE Python::Python JIT)
+add_library(embedding SHARED src/embedding.cpp)
+set_target_properties(embedding PROPERTIES PUBLIC_HEADER 
+  "src/embedding.h;include/instrumentation.h")
+target_link_libraries(embedding PUBLIC JIT)
+add_executable(py_emb src/python_embedder.cpp)
+target_link_libraries(py_emb PRIVATE Python::Python embedding)
 pybind11_add_module(raas_support MODULE src/raas_support.cpp)
 
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED 17)
+
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 if (${CMAKE_C_COMPILER} STREQUAL "clang")
   set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
@@ -44,11 +52,11 @@ set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
 add_subdirectory(src/external)
-message(${Python_SITELIB})
 
-install(TARGETS JIT instrumentFn
+install(TARGETS embedding JIT instrumentFn
   RUNTIME DESTINATION bin
   LIBRARY DESTINATION lib
+  PUBLIC_HEADER DESTINATION include
   ARCHIVE DESTINATION lib/static
 )
 

@@ -28,8 +28,8 @@ extern "C"
 #endif
     void *
     $jump_to_jit(const char *fnName) {
-  LLVM_DEBUG(dbgs() << "[RAAS] Jumping to JIT from function " << fnName
-                    << '\n';);
+  //LLVM_DEBUG(dbgs() << "[RAAS] Jumping to JIT from function " << fnName
+  //                  << '\n';);
   //  JIT not yet initialized, just leave
   if (not J) {
     return nullptr;
@@ -258,7 +258,7 @@ Expected<ExecutorSymbolDef> ApproxJIT::lookup(StringRef Name,
 // mapper that allows approximate symbols to be present in a Dylib, even if they
 // are usually discarded. The only difference between this and standard mapping
 // is that we change linkage type for  approximable symbols if they are
-// linkonce_odr
+// linkonce_odr/local linkage
 static void allowApproximateSymbolsMapper(
     ArrayRef<GlobalValue *> GVs, ExecutionSession &ES,
     const IRSymbolMapper::ManglingOptions &MO, SymbolFlagsMap &SymbolFlags,
@@ -272,7 +272,7 @@ static void allowApproximateSymbolsMapper(
     // change linkage type of approximable functions so their symbols are not
     // discarded
     if (auto F = dyn_cast<Function>(G)) {
-      if (passlist::isApproximable(*F) && F->hasLinkOnceODRLinkage())
+      if (passlist::isApproximable(*F) && (F->hasLinkOnceODRLinkage() || F->hasLocalLinkage()))
         F->setLinkage(GlobalValue::WeakODRLinkage);
     }
 

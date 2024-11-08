@@ -435,8 +435,6 @@ ApproxLayer::approximateModule(ThreadSafeModule TSM, StringRef functionName,
         PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
 
         ModulePassManager MPM;
-        //MPM.addPass(createModuleToFunctionPassAdaptor(FunctionApproximation()));
-        //MPM.addPass(createModuleToFunctionPassAdaptor(LoopPerforation()));
         passlist::addPassesToPM(MPM);
         MPM.addPass(VerifierPass());
 
@@ -467,6 +465,11 @@ Error ApproxLayer::updateApproximations() {
   for (auto &II : toUpdateMap) {
     auto Function = II.first();
     auto &config = II.second;
+    //LLVM_DEBUG(
+    //    dbgs() << "[RAAS] calling addApproximateVersion for function "
+    //           << Function << " with combination "
+    //           << EvaluationSystem::getCombinationFromConfiguration(config)
+    //           << '\n');
     LLVM_DEBUG(
         dbgs() << "[RAAS] calling addApproximateVersion for function "
                << Function << " with combination "

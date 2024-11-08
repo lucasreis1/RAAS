@@ -30,8 +30,7 @@ public:
     if (!willApprox)
       addGlobalValues(M);
     for (auto &F : M) {
-      if (not F.isDeclaration() and not F.hasLocalLinkage() and
-          not F.hasAvailableExternallyLinkage() and
+      if (not F.isDeclaration() and not F.hasAvailableExternallyLinkage() and
           not F.getName().starts_with("raas_orig")) {
         // if approximating this module, instrument the funciton accordingly
         if (willApprox and passlist::isApproximable(F)) {
@@ -106,6 +105,8 @@ public:
     ValueToValueMapTy VM;
     auto clonedFn = CloneFunction(&F, VM);
     clonedFn->setName("raas_orig" + F.getName());
+    // strip debug info from cloned function
+    clonedFn->setSubprogram(nullptr);
 
     Type *Int64 = Type::getInt64Ty(F.getContext());
     Type *Int1 = Type::getInt1Ty(F.getContext());
@@ -137,7 +138,8 @@ public:
     if (jump_to_jitFn == nullptr)
       llvm_unreachable("did not find jump_to_jit() function in the module");
 
-    // check if the pointer to the function is null. jump to the original function if it is.
+    // check if the pointer to the function is null. jump to the original
+    // function if it is.
     auto jitPtrIsNullCmp = B.CreateICmpEQ(
         jump_to_jitFn,
         ConstantPointerNull::get(PointerType::get(F.getContext(), 0)));

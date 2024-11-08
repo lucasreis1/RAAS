@@ -1,6 +1,7 @@
 #include "embedding.h"
 #include "jit/Core.h"
 #include "jit/JIT.h"
+#include <dlfcn.h>
 #include <fstream>
 
 std::unique_ptr<llvm::orc::ApproxJIT> J;
@@ -66,6 +67,43 @@ bool start_JIT(std::string evalBCFile, std::string appModulesFile,
 
   return true;
 }
+
+int initializeEmbedding(int argc, char *argv[], int &i) {
+  // file with list of modules separated by new line
+  std::string approximableModulesFile = "";
+  std::string preciseModulesFile = "";
+  std::string forbiddenApproximationsFile = "";
+  std::string evalModule = "";
+
+  // arg parsing
+  for (i = 1; i < argc; ++i) {
+    if (strcmp(argv[i], "--eval_mod") == 0)
+      evalModule = argv[++i];
+    else if (strcmp(argv[i], "--app_mod") == 0)
+      approximableModulesFile = argv[++i];
+    else if (strcmp(argv[i], "--prec_mod") == 0)
+      preciseModulesFile = argv[++i];
+    else if (strcmp(argv[i], "--forbidden_approx") == 0)
+      forbiddenApproximationsFile = argv[++i];
+    else
+      break;
+  }
+
+  if (evalModule == "")
+    return -1;
+
+  // auto *lib = dlopen("libtorch_cpu.so", RTLD_LAZY | RTLD_GLOBAL);
+  // if (lib == nullptr) {
+  //   fprintf(stderr, "dlopen libtorch_cpu_approx failure: %s\n", dlerror());
+  //   return 1;
+  // }
+
+  //  start JIT with argv[1] as evaluation module file
+  return start_JIT(evalModule, approximableModulesFile, preciseModulesFile,
+                   forbiddenApproximationsFile);
+}
+
+void endEmbedding() { printOpportunities(true); }
 
 void printOpportunities(bool csv_format) {
   J->printRankedOpportunities(csv_format);
