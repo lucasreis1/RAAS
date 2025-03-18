@@ -1,10 +1,16 @@
 #include "Core.h"
 #include "passes/Passes.h"
 #include <cxxabi.h>
+#include <iostream>
+#include <fstream>
 
 EvaluationSystem::EvaluationSystem(
-    std::unique_ptr<ConfigurationEvaluation> eval)
-    : evaluator(std::move(eval)) {}
+    std::unique_ptr<ConfigurationEvaluation> eval, bool trainingMode,
+    std::string programName)
+    : evaluator(std::move(eval)), trainingMode(trainingMode), programName(programName) {
+  assert((trainingMode && programName != "" || !trainingMode) &&
+         "Asked to store JSON but program name not informed!\n");
+}
 
 void EvaluationSystem::addFunction(const Function &F) {
   auto functionName = F.getName();
@@ -52,6 +58,12 @@ EvaluationSystem::populateApproximationRate(const Function &F) {
   // create a map for each function with extra information inside the
   // evaluator class
   evaluator->buildApproximationStructures(F.getName(), M);
+
+  if (trainingMode) {
+    std::string fileName = programName + ".json";
+    evaluator->restoreStateFromJSON(F.getName(), fileName);
+  }
+
   return M;
 }
 
@@ -87,6 +99,8 @@ EvaluationSystem::updateSuggestedConfigurations() {
   StringMap<configurationPerTechniqueMap> toReapprox;
   // calls our evaluator to do its heuristic and update suggested configurations
   evaluator->updateSuggestedConfigurations();
+  if (trainingMode)
+    this->storeConfigurationToFile();
 
   // iterate over all approximable functions and ask the evaluator for
   // configurations that have changed in the last iteration
@@ -122,6 +136,19 @@ double EvaluationSystem::getLastError() {
 }
 
 void EvaluationSystem::printRankedOpportunities(bool csv_format) {
-  errs() << evaluator->getRankedConfigurations(csv_format);
+  std::cout << evaluator->getRankedConfigurations(csv_format);
   return;
+}
+
+void EvaluationSystem::storeConfigurationToFile() {
+  auto jsonStr = evaluator->getJSONConfiguration();
+  std::string fileName = programName + ".json";
+  std::ofstream f(fileName);
+  if (f.is_open()) {
+    f << jsonStr;
+    f.close();
+  }
+  else {
+    fprintf(stderr, "Unable to open file %s\n", fileName.c_str());
+  }
 }

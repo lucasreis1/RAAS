@@ -25,16 +25,51 @@ static cl::opt<bool>
                cl::desc("Execute the JIT pipeline without applying "
                         "approximations. Ideal for overhead checks"));
 
-static cl::opt<std::string>
-    inputFile("<bitcode-file>", cl::Positional, cl::Required,
-              cl::desc("Path to the application bitcode file"));
+// static cl::opt<std::string>
+//     inputFile("<bitcode-file>", cl::Positional, cl::Required,
+//               cl::desc("Path to the application bitcode file"));
 
 static cl::list<std::string>
-    Dylibs("dlopen", cl::desc("Dynamic libraries to load before linking"));
+    Dylibs("dlopen", cl::CommaSeparated,
+           cl::desc("Dynamic libraries to load before linking"));
+
+static cl::list<std::string> inputFiles(
+    "precise-modules", cl::NotHidden, cl::CommaSeparated,
+    cl::desc(
+        "List of modules that are compiled as-is, without approximations."));
+
+static cl::list<std::string>
+    approxFiles("approx-modules", cl::NotHidden, cl::CommaSeparated,
+                cl::desc("List of modules that are part of the application and "
+                         "should be re-compiled with approximations."));
 
 static cl::opt<std::string>
     evaluationFile("evaluation-file", cl::Positional, cl::Required,
                    cl::desc("path to the evaluation bitcode file"));
+
+static cl::opt<double>
+    errorLimit("error-limit", cl::init(0.3), cl::Optional,
+               cl::desc("Error limit for evaluation system"));
+
+static cl::opt<std::string> trainingModeOpt(
+    "training-mode", cl::init("default"), cl::Optional,
+    cl::desc("Store JSON file for each configuration. Starts "
+             "application by reading from previous JSON file. Pass a string "
+             "after the option to inform the name of the json file"));
+
+static cl::opt<bool> clPrintRankedOpportunities(
+    "print-ranked", cl::init(false), cl::Optional,
+    cl::desc("Print ranked opportunities after framework concludes operating"));
+
+static cl::opt<TIER> scoringAggressiveness(
+    "scoring-aggressiveness",
+    cl::desc("Chose how agressive we want to value speedups over lower errors "
+             "for configurations"),
+        cl::values(clEnumVal(low, "Favor lower error rates first"),
+                   clEnumVal(medium, "Balance between favoring higher "
+                                           "speedups and lower error rates"),
+                   clEnumVal(high, "Favor higher speedups first")),
+    cl::init(low));
 
 // json file that lists skippable approximations
 // should follow:
@@ -45,8 +80,7 @@ static cl::opt<std::string>
 //  }
 // }
 static cl::opt<std::string>
-    forbiddenApproxFile("forbidden-approx-list", cl::NotHidden, cl::init(""),
-                        cl::Optional,
+    forbiddenApproxFile("forbidden-approx-list", cl::NotHidden, cl::Optional,
                         cl::desc("json file for skippable approximations"));
 
 static cl::list<std::string> InputArgv(cl::ConsumeAfter,
@@ -63,23 +97,24 @@ Error loadDylibs() {
 }
 
 int main(int argc, char *argv[]) {
-
-  InitializeNativeTarget();
-  InitializeNativeTargetAsmPrinter();
-  InitializeNativeTargetAsmParser();
-  SMDiagnostic error;
+  initializeTarget();
 
   // add our options to a specific category
   // TODO: find a better way to do this
-  cl::OptionCategory ourCategory("Options");
-  clPrintFunctions.addCategory(ourCategory);
-  inputFile.addCategory(ourCategory);
-  evaluationFile.addCategory(ourCategory);
-  Dylibs.addCategory(ourCategory);
-  clNoApprox.addCategory(ourCategory);
-  forbiddenApproxFile.addCategory(ourCategory);
+  cl::OptionCategory RAASCategory("Options");
+  clPrintFunctions.addCategory(RAASCategory);
+  inputFiles.addCategory(RAASCategory);
+  approxFiles.addCategory(RAASCategory);
+  evaluationFile.addCategory(RAASCategory);
+  Dylibs.addCategory(RAASCategory);
+  clNoApprox.addCategory(RAASCategory);
+  forbiddenApproxFile.addCategory(RAASCategory);
+  errorLimit.addCategory(RAASCategory);
+  trainingModeOpt.addCategory(RAASCategory);
+  clPrintRankedOpportunities.addCategory(RAASCategory);
+  scoringAggressiveness.addCategory(RAASCategory);
   // hide options not from our program
-  // cl::HideUnrelatedOptions(ourCategory);
+  cl::HideUnrelatedOptions(RAASCategory);
 
   cl::ParseCommandLineOptions(argc, argv, "Runtime JIT Approximation");
 
@@ -93,15 +128,40 @@ int main(int argc, char *argv[]) {
   //}
 
   // create the JIT sending the application IR module and eval function module
-  J = ExitOnErr(orc::ApproxJIT::Create(inputFile, evaluationFile));
+  // if trainingMode is set to default, let the JIT decide program name
+  if (trainingModeOpt.getNumOccurrences())
+    J = ExitOnErr(orc::ApproxJIT::Create(evaluationFile, scoringAggressiveness,
+                                         errorLimit, trainingModeOpt, true,
+                                         clNoApprox));
+  else
+    J = ExitOnErr(orc::ApproxJIT::Create(evaluationFile, scoringAggressiveness,
+                                         errorLimit, "", false, clNoApprox));
 
   // read list of forbidden approximations
-  if (forbiddenApproxFile != "") {
+  if (forbiddenApproxFile.getNumOccurrences()) {
     auto forbiddenApproxList =
         ForbiddenApproximations::Create(forbiddenApproxFile);
-    if (!forbiddenApproxList)
-      llvm_unreachable("Forbidden approximation file invalid!");
+    if (auto Err = forbiddenApproxList.getError()) {
+      errs() << Err.message() << "\n";
+      std::exit(1);
+    }
     J->setForbiddenApproxList(std::move(forbiddenApproxList.get()));
+  }
+
+  if (not inputFiles.getNumOccurrences() and
+      not approxFiles.getNumOccurrences()) {
+    errs() << "At least one precise or approx module must be informed!\n";
+    std::exit(1);
+  }
+
+  if (inputFiles.getNumOccurrences()) {
+    for (auto inputFile : inputFiles)
+      ExitOnErr(J->addModuleFile(inputFile));
+  }
+
+  if (approxFiles.getNumOccurrences()) {
+    for (auto approxFile : approxFiles)
+      ExitOnErr(J->addModuleApproxFile(approxFile));
   }
 
 #ifndef DEBUG
@@ -113,13 +173,14 @@ int main(int argc, char *argv[]) {
   auto mainSymb = ExitOnErr(J->lookup("main"));
 
   // fill the arguments vector
-  InputArgv.insert(InputArgv.begin(), inputFile);
+  InputArgv.insert(InputArgv.begin(), "jitted_program");
 
   // run the main function
   J->runAsMain(ExecutorAddr(mainSymb.getAddress()), InputArgv);
 
   // print opportunities after evaluation ranked by their score
-  J->printRankedOpportunities();
+  if (clPrintRankedOpportunities)
+    J->printRankedOpportunities();
 
 #ifndef DEBUG
   // run destructors

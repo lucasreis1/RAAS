@@ -28,11 +28,11 @@ public:
       std::function<std::unique_ptr<IndirectStubsManager>()>;
 
   ApproxLayer(ExecutionSession &ES, DataLayout &DL, IRLayer &baseLayer,
-              JITTargetAddress jitAddress, EvaluationSystem &evaluator,
+              JITTargetAddress jitAddress, EvaluationSystem &evaluationSystem,
               LazyCallThroughManager &LCTMgr,
               IndirectStubsManagerBuilder BuildIndirectStubsManager);
   ApproxLayer(ExecutionSession &ES, DataLayout &DL, IRLayer &baseLayer,
-              EvaluationSystem &evaluator, LazyCallThroughManager &LCTMgr,
+              EvaluationSystem &evaluationSystem, LazyCallThroughManager &LCTMgr,
               IndirectStubsManagerBuilder BuildIndirectStubsManager,
               bool noApprox = false);
 
@@ -126,7 +126,7 @@ private:
 
   mutable std::mutex ApproxLayerMutex;
 
-  EvaluationSystem &evaluator;
+  EvaluationSystem &evaluationSystem;
   SymbolLinkagePromoter PromoteSymbols;
   IRLayer &baseLayer;
   IndirectStubsManagerBuilder BuildIndirectStubsManager;

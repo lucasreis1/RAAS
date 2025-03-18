@@ -1,5 +1,8 @@
 #include "Core.h"
 #include "SimpleEvaluator.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/JSON.h"
+#include <fstream>
 #include <iomanip>
 #include <ios>
 #include <sstream>
@@ -7,10 +10,13 @@
 // number of repetitions required to test a single configuration
 #define LOOPS_PER_CONFIG 3
 
+#define DEBUG_TYPE "raas"
+
 bool isNan(double v) { return v != v; }
 
 // empty constructor, we start building the attributes only when we need them
-SimpleEvaluator::SimpleEvaluator() {}
+SimpleEvaluator::SimpleEvaluator(double elim, TIER aggressiveness)
+    : ConfigurationEvaluation(elim), scoringAggressiveness(aggressiveness) {}
 
 void SimpleEvaluator::buildApproximationStructures(
     StringRef functionName, configurationPerTechniqueMap M) {
@@ -36,6 +42,9 @@ void SimpleEvaluator::buildApproximationStructures(
         if (forbiddenPerTechnique.find(index + 1) !=
             forbiddenPerTechnique.end()) {
           oppInfo.maxParameter = forbiddenPerTechnique[index + 1];
+          LLVM_DEBUG(dbgs() << "[RAAS] Fixing parameter " << index + 1 << " as "
+                            << forbiddenPerTechnique[index + 1]
+                            << " for function " << functionName << "\n";);
           if (oppInfo.maxParameter == 0)
             oppInfo.foundOptimal = true;
         }
@@ -83,10 +92,11 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           // do not touch opportunity again if error is above limit or error is
           // NaN
           auto lastError = APQ.getErrors().second;
-          if (lastError > ERROR_LIMIT or isNan(lastError))
+          if (lastError > errorLimit or isNan(lastError))
             lastModifiedOp.foundOptimal = true;
         }
-      }
+      } else
+        iterationCount += LOOPS_PER_CONFIG - 1;
     }
     // start our combination heuristic evaluation
     if (iterationCount >= evaluationLimit) {
@@ -126,16 +136,19 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           // propsed optimal configuration
           if (lastCheckedOpportunity->speedup >
                   lastCheckedOpportunity->idealConfig.first and
-              lastError <= ERROR_LIMIT and not isNan(lastError)) {
+              lastError <= errorLimit and not isNan(lastError)) {
             // update the optimal configuration
             lastCheckedOpportunity->idealConfig = {
                 lastCheckedOpportunity->speedup,
                 lastCheckedOpportunity->parameter};
           }
           // if we are still not at maximum parameter and still achieving
-          // speedups, keep increasing the parameter
-          if (lastCheckedOpportunity->parameter !=
-              lastCheckedOpportunity->maxParameter) {
+          // speedups (or are approximating via GEMMs), keep increasing the
+          // parameter
+          if ((lastCheckedOpportunity->speedup >= 1. or
+               lastCheckedOpportunity->AT == approxTechnique::GAP) and
+              lastCheckedOpportunity->parameter !=
+                  lastCheckedOpportunity->maxParameter) {
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
@@ -208,12 +221,152 @@ void SimpleEvaluator::unmarkAsUpdated(std::string functionName) {
 }
 
 double SimpleEvaluator::getScore() {
-  std::pair<double, double> errors = APQ.getErrors();
-  std::pair<double, double> speedups = APQ.getSpeedups();
+  auto error = APQ.getErrors().second;
+  auto speedup = APQ.getSpeedups().second;
 
-  // we use max to avoid dividing by zero
-  // score = (1 - s^-1)/error
-  return (1 - 1 / speedups.second) / std::max(errors.second, 0.001);
+  switch (scoringAggressiveness) {
+  case low:
+    // we use max to avoid dividing by zero
+    // score = (1 - s^-1)/error
+    return (1 - 1 / speedup) / std::max(error, 0.001);
+    break;
+  case medium:
+    return speedup / std::max(error, 0.001);
+    break;
+  case high:
+    return speedup * speedup * speedup / std::max(error, 0.001);
+    break;
+  }
+}
+
+std::string SimpleEvaluator::getJSONConfiguration() {
+  auto getMAddNestedObject = [](json::Object &parent,
+                                const std::string &key) -> json::Object & {
+    auto it = parent.find(key);
+    if (it == parent.end())
+      it = parent.insert({key, json::Object()}).first;
+    return *it->second.getAsObject();
+  };
+
+  json::Object lastConfigurationsObject;
+  lastConfigurationsObject.insert({"iterations", iterationCount});
+
+  auto &functionsObject =
+      getMAddNestedObject(lastConfigurationsObject, "functions");
+  for (auto &el : opportunitiesWrapper) {
+    auto fn = el.parent->functionName;
+    auto &obj = getMAddNestedObject(functionsObject, fn);
+    auto &techObj = getMAddNestedObject(obj, std::to_string(el.AT));
+    auto confArr =
+        json::Array({json::Value(el.parameter), json::Value(el.score),
+                     json::Value(el.foundOptimal)});
+    techObj[std::to_string(el.index + 1)] = std::move(confArr);
+  }
+
+  json::Value jsonValue = std::move(lastConfigurationsObject);
+  std::string jsonStr;
+  llvm::raw_string_ostream jsonStream(jsonStr);
+  jsonStream << jsonValue;
+  jsonStream.flush();
+
+  return jsonStr;
+}
+
+void SimpleEvaluator::restoreStateFromJSON(StringRef functionName,
+                                           std::string JSONFilePath) {
+  static llvm::ExitOnError exitOnErr;
+  LLVM_DEBUG(dbgs() << "[RAAS] Restoring data from JSON file " << JSONFilePath
+                    << "\n";);
+  std::ifstream JSONFile(JSONFilePath);
+  if (!JSONFile.is_open()) {
+    LLVM_DEBUG(
+        dbgs() << "[RAAS] File " << JSONFilePath
+               << " not found! Continuning without restoring configuration\n");
+    return;
+  }
+
+  std::stringstream buffer;
+  buffer << JSONFile.rdbuf();
+  std::string jsonStr = buffer.str();
+  JSONFile.close();
+  auto jsonObj = *exitOnErr(json::parse(jsonStr)).getAsObject();
+
+  auto iterationsIt = jsonObj.find("iterations");
+  assert(iterationsIt != jsonObj.end() &&
+         "unable to find number of iterations on JSON config\n");
+  auto iterationsOpt = iterationsIt->getSecond().getAsInteger();
+  assert(iterationsOpt.has_value() &&
+         "must have a value for iterations in the JSON\n");
+  if (iterationsOpt.value() != iterationCount)
+    iterationCount = iterationsOpt.value();
+
+  auto FnObjectIt = jsonObj.find("functions");
+  assert(FnObjectIt != jsonObj.end() &&
+         "unable to find map of functions on JSON config\n");
+
+  bool foundFn = false;
+  for (auto &fnObject : *FnObjectIt->getSecond().getAsObject()) {
+    std::string fnName = fnObject.getFirst().str();
+    // to comply with per-function approximation granularity, we'll only load a
+    // function of a time this should not provide significant performance impact
+    // as reading a json is fairly quick and it's only done once per function
+    if (fnName != functionName.str())
+      continue;
+    foundFn = true;
+
+    auto &opPerFunction = getOpportunitiesForFunction(fnName);
+    auto &opPerTechnique = opPerFunction.opportunitiesPerTechnique;
+    auto techniques = fnObject.getSecond().getAsObject();
+    for (auto &tech : *techniques) {
+      auto AT = static_cast<approxTechnique>(std::stoi(tech.getFirst().str()));
+      auto configArrIt = opPerTechnique.find(AT);
+      assert(configArrIt != opPerTechnique.end() &&
+             "Invalid JSON to load config from!\n");
+      auto &evalMap = configArrIt->second;
+      auto configurations = tech.getSecond().getAsObject();
+      for (auto &config : *configurations) {
+        auto idx = std::stoi(config.getFirst().str());
+
+        // options are a pair [parameter (int) ,optimal (bool)]
+        auto optionsInConfig = config.getSecond().getAsArray();
+        auto optParam = (*optionsInConfig)[0].getAsInteger();
+        auto optScore = (*optionsInConfig)[1].getAsNumber();
+        auto optBool = (*optionsInConfig)[2].getAsBoolean();
+        assert(optParam.has_value() && optBool.has_value() &&
+               "Missing info for element in JSON");
+
+        auto optParamValue = optParam.value();
+        auto optBoolValue = optBool.value();
+
+        // these may be set by the forbiddenapproxlist before we get here.
+        // Make sure we comply to those limitations
+        auto maxParameter = evalMap[idx - 1].maxParameter;
+        auto foundOptimal = evalMap[idx - 1].foundOptimal;
+
+        if (optParamValue > maxParameter)
+          optParamValue = maxParameter;
+
+        if (foundOptimal)
+          optBoolValue = true;
+
+        evalMap[idx - 1].parameter = optParamValue;
+        evalMap[idx - 1].score = optScore.value();
+        evalMap[idx - 1].foundOptimal = optBoolValue;
+        LLVM_DEBUG(dbgs() << "[RAAS] Setting configuration "
+                          << techniqueNameMap.at(AT) << "|" << idx
+                          << " from function " << fnName << " to ["
+                          << optParamValue << "|" << optScore.value() << "|"
+                          << optBoolValue << "]\n";);
+      }
+    }
+    opPerFunction.updatedInLastEvaluation = true;
+  }
+  if (!foundFn)
+    LLVM_DEBUG(
+        dbgs()
+        << "[RAAS] " << functionName
+        << " not found on JSON restoration file. Proceeding without it.\n");
+  // assert(foundFn && "Function was not found in restore data JSON!\n");
 }
 
 template <typename T>

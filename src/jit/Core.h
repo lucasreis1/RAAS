@@ -46,8 +46,8 @@
 //  "from-assumptions,loop-sink,instsimplify,div-rem-pairs,tailcallelim),"       \
 //  "globaldce,constmerge,cg-profile,rel-lookup-table-converter,function("       \
 //  "annotation-remarks),verify"
-#define ERROR_LIMIT 0.3
 enum approxTechnique { FAP, LPAR, LPERF, GAP };
+enum TIER {low, medium, high};
 
 // translate enum to string with technique name
 static const std::map<approxTechnique, std::string> techniqueNameMap = {
@@ -62,7 +62,6 @@ static const std::map<approxTechnique, unsigned> maxParameter = {
 
 using configurationPerTechniqueMap =
     std::map<const approxTechnique, std::vector<int>>;
-using SkippableApprox = std::map<unsigned, unsigned>;
 
 using namespace llvm;
 
@@ -79,6 +78,7 @@ class ConfigurationEvaluation {
   friend EvaluationSystem;
 
 public:
+  ConfigurationEvaluation(double elim) : errorLimit(elim) {}
   // create the data structure used for the heuristic to compute the optimal
   // approximation per technique
   virtual void buildApproximationStructures(StringRef functionName,
@@ -104,6 +104,17 @@ public:
    * list and must only be called after evaluation ends.
    */
   virtual std::string getRankedConfigurations(bool csv_format) = 0;
+
+  /* returns a string containing a JSON object with current opportunity
+   * configuration
+   */
+  virtual std::string getJSONConfiguration() = 0;
+
+  /* open JSON file and restore configuration state
+   * from it.
+   */
+  virtual void restoreStateFromJSON(StringRef functionName,
+                                    std::string JSONFile) = 0;
 
   class approximationQuality {
     double preciseTime = 0.0;
@@ -144,6 +155,7 @@ protected:
   // evaluates the score for each approximation opportunity for each function
   // and returns the choosen configuration set
   virtual void updateSuggestedConfigurations() = 0;
+  const double errorLimit;
 };
 
 /**
@@ -153,7 +165,8 @@ protected:
  */
 class EvaluationSystem {
 public:
-  EvaluationSystem(std::unique_ptr<ConfigurationEvaluation> eval);
+  EvaluationSystem(std::unique_ptr<ConfigurationEvaluation> eval,
+                   bool trainingMode = false, std::string programName = "");
 
   // add a function to our map
   void addFunction(const Function &F);
@@ -182,6 +195,7 @@ public:
 
   double getLastSpeedup();
   double getLastError();
+  double getErrorLimit();
 
   void setForbiddenApproxList(std::unique_ptr<ForbiddenApproximations> fap) {
     evaluator->setForbiddenApproxList(std::move(fap));
@@ -204,6 +218,14 @@ private:
   // opportunities for each technique.
   // returns a map that translates approxTechnique -> config vector
   configurationPerTechniqueMap populateApproximationRate(const Function &F);
+
+  /*
+   * Store last seen configuration into a JSON File
+   */
+  void storeConfigurationToFile();
+
+  const std::string programName;
+  const bool trainingMode;
 };
 
 /**
@@ -211,7 +233,7 @@ private:
  * avoid runtime errors
  */
 class ForbiddenApproximations {
-
+  using SkippableApprox = std::map<unsigned, unsigned>;
   using opportunitiesPerFunction = std::map<approxTechnique, SkippableApprox>;
 
 public:
@@ -227,5 +249,5 @@ public:
 private:
   // functionName -> skippableApprox
   std::map<std::string, opportunitiesPerFunction> skippableApprox;
-  static std::map<std::string, approxTechnique> stringToTechType;
+  static const std::map<std::string, approxTechnique> stringToTechType;
 };

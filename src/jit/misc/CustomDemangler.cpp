@@ -17,6 +17,8 @@ Expected<CustomDemangler> CustomDemangler::Create(const Module *M) {
     if (count == functionNames.size())
       break;
     std::string mangled = F.getName().str();
+    if (mangled == "")
+      continue;
     int status;
     // demangle the name
     const char *demangled =

@@ -3,7 +3,7 @@
 
 class SimpleEvaluator : public ConfigurationEvaluation {
 public:
-  SimpleEvaluator();
+  SimpleEvaluator(double elim, TIER aggressiveness = low);
 
   // inherited methods
   void updateSuggestedConfigurations();
@@ -13,7 +13,8 @@ public:
   bool wasUpdatedInLastEvaluation(std::string functionName);
   void unmarkAsUpdated(std::string functionName);
   std::string getRankedConfigurations(bool csv_format);
-
+  std::string getJSONConfiguration();
+  void restoreStateFromJSON(StringRef functionName, std::string JSONFile);
 private:
   configurationPerTechniqueMap
   getSuggestedConfiguration(StringRef functionName);
@@ -82,4 +83,7 @@ private:
   double getScore();
 
   static std::map<approxTechnique, std::string> techToStrMap;
+
+  // how aggressive do we want to value speedups instead of lower error rates?
+  const TIER scoringAggressiveness;
 };

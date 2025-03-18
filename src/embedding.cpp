@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <fstream>
 
+#define ERROR_LIMIT 0.3
 std::unique_ptr<llvm::orc::ApproxJIT> J;
 
 bool start_JIT(std::string evalBCFile, std::string appModulesFile,
@@ -15,7 +16,7 @@ bool start_JIT(std::string evalBCFile, std::string appModulesFile,
   }
 
   initializeTarget();
-  J = ExitOnErr(llvm::orc::ApproxJIT::Create(evalBCFile));
+  J = ExitOnErr(llvm::orc::ApproxJIT::Create(evalBCFile, TIER::low, ERROR_LIMIT));
   // TODO: fix platform initialization
   // ExitOnErr(J->initializePlatform());
 

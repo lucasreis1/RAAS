@@ -1,5 +1,6 @@
 #include "ApproxLayer.h"
 #include "Core.h"
+#include "passes/Passes.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/ExecutionEngine/JITSymbol.h"
 #include "llvm/ExecutionEngine/Orc/Core.h"
@@ -24,7 +25,6 @@
 #include "llvm/Transforms/Scalar/Reg2Mem.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
-#include "passes/Passes.h"
 #include <regex>
 #include <utility>
 
@@ -108,21 +108,21 @@ ApproxLayer::lookup(JITDylib &JD, SymbolStringPtr MangledName,
 
 ApproxLayer::ApproxLayer(ExecutionSession &ES, DataLayout &DL,
                          IRLayer &baseLayer, JITTargetAddress jitAddress,
-                         EvaluationSystem &evaluator,
+                         EvaluationSystem &evaluationSystem,
                          LazyCallThroughManager &LCTMgr,
                          IndirectStubsManagerBuilder BuildIndirectStubsManager)
     : IRLayer(ES, baseLayer.getManglingOptions()), jitAddress(jitAddress),
-      evaluator(evaluator), baseLayer(baseLayer),
+      evaluationSystem(evaluationSystem), baseLayer(baseLayer),
       BuildIndirectStubsManager(std::move(BuildIndirectStubsManager)),
       LCTMgr(LCTMgr), DL(DL){};
 
 ApproxLayer::ApproxLayer(ExecutionSession &ES, DataLayout &DL,
-                         IRLayer &baseLayer, EvaluationSystem &evaluator,
+                         IRLayer &baseLayer, EvaluationSystem &evaluationSystem,
                          LazyCallThroughManager &LCTMgr,
                          IndirectStubsManagerBuilder BuildIndirectStubsManager,
                          bool ignoreApprox)
-    : IRLayer(ES, baseLayer.getManglingOptions()), evaluator(evaluator),
-      baseLayer(baseLayer),
+    : IRLayer(ES, baseLayer.getManglingOptions()),
+      evaluationSystem(evaluationSystem), baseLayer(baseLayer),
       BuildIndirectStubsManager(std::move(BuildIndirectStubsManager)),
       LCTMgr(LCTMgr), ignoreApproximations(ignoreApprox), DL(DL) {}
 
@@ -134,10 +134,15 @@ void ApproxLayer::emitApprox(
   auto &configuration = nameConfigPair.second;
 
   LLVM_DEBUG(
-      dbgs() << "[RAAS] emitting approx version of function " << FnName
-             << " with combination "
-             << EvaluationSystem::getCombinationFromConfiguration(configuration)
-             << "\n");
+      auto combination =
+          EvaluationSystem::getCombinationFromConfiguration(configuration);
+      if (combination == "") {
+        dbgs() << "[RAAS] emitting precise version of function " << FnName
+               << "\n";
+      } else {
+        dbgs() << "[RAAS] emitting approx version of function " << FnName
+               << " with combination " << combination << "\n";
+      });
 
   auto resourcesOrErr = getFunctionResources(FnName);
 
@@ -148,12 +153,12 @@ void ApproxLayer::emitApprox(
 
   auto &resources = *resourcesOrErr;
 
-  // first time emitting this function, we need to tell the evaluator that it
-  // exists
-  if (not evaluator.findFunction(FnName)) {
+  // first time emitting this function, we need to tell the evaluation system
+  // that it exists
+  if (not evaluationSystem.findFunction(FnName)) {
     LLVM_DEBUG(dbgs() << "[RAAS] adding function " << FnName
-                      << " to evaluator!\n";);
-    evaluator.addFunction(*resources.getFunction());
+                      << " to evaluation system!\n";);
+    evaluationSystem.addFunction(*resources.getFunction());
   }
 
   auto clonedModule = cloneToNewContext(resources.getModule());
@@ -319,7 +324,8 @@ ApproxLayer::getApproximableFunctions(const ThreadSafeModule &TSM,
 
       // only add symbols that are listed from this MU and are defined as
       // approximable
-      if (symbols.count(Mangle(F.getName())) and evaluator.isApproximable(F))
+      if (symbols.count(Mangle(F.getName())) and
+          evaluationSystem.isApproximable(F))
         approxFns.insert(F.getName().data());
     }
   });
@@ -458,18 +464,18 @@ ApproxLayer::approximateModule(ThreadSafeModule TSM, StringRef functionName,
 }
 
 Error ApproxLayer::updateApproximations() {
-  auto toUpdateMap = evaluator.updateSuggestedConfigurations();
+  auto toUpdateMap = evaluationSystem.updateSuggestedConfigurations();
 
   // iterate over the map, add a (possibly) new approximate version to each
-  // function changed by the evaluator
+  // function changed by the evaluation system
   for (auto &II : toUpdateMap) {
     auto Function = II.first();
     auto &config = II.second;
-    //LLVM_DEBUG(
-    //    dbgs() << "[RAAS] calling addApproximateVersion for function "
-    //           << Function << " with combination "
-    //           << EvaluationSystem::getCombinationFromConfiguration(config)
-    //           << '\n');
+    // LLVM_DEBUG(
+    //     dbgs() << "[RAAS] calling addApproximateVersion for function "
+    //            << Function << " with combination "
+    //            << EvaluationSystem::getCombinationFromConfiguration(config)
+    //            << '\n');
     LLVM_DEBUG(
         dbgs() << "[RAAS] calling addApproximateVersion for function "
                << Function << " with combination "

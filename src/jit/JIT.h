@@ -11,7 +11,10 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/SourceMgr.h"
 
+// iterations where we don't approximate. we use this to compute a precise
+// execution time average
 #define BASE_ITERATIONS 5
+// loops we'll ignore to ensure cache loading before starting to take measures
 #define SKIPPABLE_LOOPS 2
 
 #define DEBUG_TYPE "raas"
@@ -56,6 +59,8 @@ private:
   // symbols for approximable functions)
   // JITDylib &SupportJD;
 
+  std::string programName;
+
   // DSO handles for initalizers
   DenseMap<orc::JITDylib *, orc::ExecutorAddr> DSOHandles;
 
@@ -86,14 +91,16 @@ public:
   ApproxJIT(std::unique_ptr<ExecutionSession> ES,
             std::unique_ptr<EPCIndirectionUtils> EPCIU,
             JITTargetMachineBuilder JTMB, DataLayout DL,
-            CustomDemangler demangler, ThreadSafeModule evalModule);
+            CustomDemangler demangler, ThreadSafeModule evalModule,
+            TIER aggressiveness, double errorLimit, std::string fileName = "",
+            bool trainingMode = false, bool ignoreApproximations = false);
 
   ~ApproxJIT();
 
   static Expected<std::unique_ptr<ApproxJIT>>
-  Create(std::string AppModule, std::string evalModuleFile);
-  static Expected<std::unique_ptr<ApproxJIT>>
-  Create(std::string evalModuleFile);
+  Create(std::string evalModuleFile, TIER aggressiveness,
+         double errorLimit = 0.3, std::string programName = "",
+         bool trainingMode = false, bool ignoreApproximations = false);
 
   Expected<ExecutorSymbolDef>
   lookup(StringRef Name, JITDylibLookupFlags Flags =

@@ -1,5 +1,6 @@
 #include "JIT.h"
 #include "SimpleEvaluator.h"
+#include "misc/utils.h"
 #include "passes/Passes.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/Core.h"
@@ -28,9 +29,9 @@ extern "C"
 #endif
     void *
     $jump_to_jit(const char *fnName) {
-  //LLVM_DEBUG(dbgs() << "[RAAS] Jumping to JIT from function " << fnName
-  //                  << '\n';);
-  //  JIT not yet initialized, just leave
+  // LLVM_DEBUG(dbgs() << "[RAAS] Jumping to JIT from function " << fnName
+  //                   << '\n';);
+  //   JIT not yet initialized, just leave
   if (not J) {
     return nullptr;
   }
@@ -117,7 +118,10 @@ Expected<ThreadSafeModule> static IPOOptimizeModule(
 ApproxJIT::ApproxJIT(std::unique_ptr<ExecutionSession> ES,
                      std::unique_ptr<EPCIndirectionUtils> EPCIU,
                      JITTargetMachineBuilder JTMB, DataLayout DL,
-                     CustomDemangler demangler, ThreadSafeModule evalModule)
+                     CustomDemangler demangler, ThreadSafeModule evalModule,
+                     TIER aggressiveness, double errorLimit,
+                     std::string fileName, bool trainingMode,
+                     bool ignoreApproximations)
     : ES(std::move(ES)), EPCIU(std::move(EPCIU)), DL(std::move(DL)),
       Mangle(*this->ES, this->DL),
       ObjectLayer(*this->ES,
@@ -128,9 +132,11 @@ ApproxJIT::ApproxJIT(std::unique_ptr<ExecutionSession> ES,
       APLayer(
           *this->ES, this->DL, TransformLayer, evaluator,
           this->EPCIU->getLazyCallThroughManager(),
-          [this] { return this->EPCIU->createIndirectStubsManager(); }, false),
+          [this] { return this->EPCIU->createIndirectStubsManager(); },
+          ignoreApproximations),
       ModuleTransformLayer(*this->ES, APLayer, IPOOptimizeModule),
-      evaluator(std::make_unique<SimpleEvaluator>()),
+      evaluator(std::make_unique<SimpleEvaluator>(errorLimit, aggressiveness),
+                trainingMode, fileName),
       MainJD(cantFail(this->ES->createJITDylib("<main>"))),
       demangler(demangler) {
 
@@ -186,7 +192,11 @@ ApproxJIT::~ApproxJIT() {
 }
 
 Expected<std::unique_ptr<ApproxJIT>>
-ApproxJIT::Create(std::string evalModuleFile) {
+ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
+                  double errorLimit, std::string programName, bool trainingMode,
+                  bool ignoreApproximations) {
+  assert(not(trainingMode and ignoreApproximations) &&
+         "Can't ignore approximations if in training mode");
   auto EPC = SelfExecutorProcessControl::Create(
       std::make_shared<orc::SymbolStringPool>());
   if (!EPC)
@@ -231,23 +241,10 @@ ApproxJIT::Create(std::string evalModuleFile) {
     return demangler.takeError();
   }
 
-  return std::make_unique<ApproxJIT>(std::move(ES), std::move(*EPCIU),
-                                     std::move(JTMB), std::move(*DL),
-                                     *demangler, std::move(*evalModule));
-}
-
-Expected<std::unique_ptr<ApproxJIT>>
-ApproxJIT::Create(std::string AppModule, std::string evalModuleFile) {
-  auto JITOrErr = Create(evalModuleFile);
-  if (!JITOrErr)
-    return JITOrErr.takeError();
-
-  auto JIT = std::move(*JITOrErr);
-
-  if (auto Err = JIT->addModuleApproxFile(AppModule))
-    return std::move(Err);
-
-  return std::move(JIT);
+  return std::make_unique<ApproxJIT>(
+      std::move(ES), std::move(*EPCIU), std::move(JTMB), std::move(*DL),
+      *demangler, std::move(*evalModule), aggressiveness, errorLimit,
+      programName, trainingMode, ignoreApproximations);
 }
 
 Expected<ExecutorSymbolDef> ApproxJIT::lookup(StringRef Name,
@@ -272,7 +269,8 @@ static void allowApproximateSymbolsMapper(
     // change linkage type of approximable functions so their symbols are not
     // discarded
     if (auto F = dyn_cast<Function>(G)) {
-      if (passlist::isApproximable(*F) && (F->hasLinkOnceODRLinkage() || F->hasLocalLinkage()))
+      if (passlist::isApproximable(*F) &&
+          (F->hasLinkOnceODRLinkage() || F->hasLocalLinkage()))
         F->setLinkage(GlobalValue::WeakODRLinkage);
     }
 
@@ -368,19 +366,23 @@ Expected<ExecutorSymbolDef> ApproxJIT::lookupOrLoadSymbol(StringRef Name,
   return SymOrErr;
 }
 
-double measure_time() {
-  double time;
-  FILE *f = fopen(".jit_time.txt", "r");
-  if (f == nullptr)
-    llvm_unreachable("could not open time_sampling file!\n");
+// find iteration time from symbol present in application
+llvm::Expected<double> lookupIterationTime() {
+  auto SymOrErr = J->lookup("raas_dtime");
+  if (auto Err = SymOrErr.takeError()) {
+    consumeError(std::move(Err));
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Symbol <raas_dtime> not found on application. Malformed "
+        "'instrumentation.h' header?");
+  }
 
-  fscanf(f, "%lf", &time);
-  fclose(f);
-  return time;
+  auto timePtr = SymOrErr->getAddress().toPtr<double *>();
+  return *timePtr;
 }
 
 bool ApproxJIT::approxReevaluation() {
-  double time = measure_time();
+  auto time = ExitOnErr(lookupIterationTime());
   // this is the first loop, we will use it only to store precise output
   // values. We do not want time measures from this loop
   // to avoid measuring a cold cache

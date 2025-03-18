@@ -12,7 +12,7 @@ ForbiddenApproximations::ForbiddenApproximations(StringRef jsonFile) {
     auto &skippableApproxForFunction = skippableApprox[functionName];
     // tech -> pair
     for (auto &techOppPair : *funSkippablePair.getSecond().getAsObject()) {
-      auto technique = stringToTechType[techOppPair.getFirst().str()];
+      auto technique = stringToTechType.at(techOppPair.getFirst().str());
       // first -> opportunity number
       // second -> max approx allowed
       for (auto &configPair : *techOppPair.getSecond().getAsObject()) {
@@ -40,6 +40,6 @@ ForbiddenApproximations::Create(StringRef jsonFileName) {
       ForbiddenApproximations(buffer.get()->getBuffer()));
 }
 
-std::map<std::string, approxTechnique>
+const std::map<std::string, approxTechnique>
     ForbiddenApproximations::stringToTechType = {
         {"lperf", LPERF}, {"fapp", FAP}, {"lpar", LPAR}};
