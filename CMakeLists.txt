@@ -39,6 +39,7 @@ set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED 17)
 
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_DEBUG "-O -g -DDEBUG")
 
 if (${CMAKE_C_COMPILER} STREQUAL "clang")
   set_property(DIRECTORY APPEND PROPERTY COMPILE_OPTIONS -fdiagnostics-color)
@@ -47,8 +48,6 @@ endif()
 
 # export compile commands by default
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-set (CMAKE_BUILD_TYPE Release)
 
 add_subdirectory(src/jit)
 add_subdirectory(src/external)

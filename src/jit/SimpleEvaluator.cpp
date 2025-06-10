@@ -1,5 +1,6 @@
 #include "Core.h"
 #include "SimpleEvaluator.h"
+#include "misc/utils.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/JSON.h"
 #include <fstream>
@@ -11,8 +12,6 @@
 #define LOOPS_PER_CONFIG 3
 
 #define DEBUG_TYPE "raas"
-
-bool isNan(double v) { return v != v; }
 
 // empty constructor, we start building the attributes only when we need them
 SimpleEvaluator::SimpleEvaluator(double elim, TIER aggressiveness)
@@ -173,11 +172,12 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
       }
     }
   }
+  LLVM_DEBUG(dbgs() << "[RAAS] Opportunities recomputed for iteration " << iterationCount << "\n");
   // stop counting iterations after we did preprocessing
   // if (iterationCount <= evaluationLimit)
   iterationCount++;
 
-  for (auto opportunity : opportunitiesWrapper)
+  for (auto opportunity : opportunitiesWrapper) 
     fprintf(stdout, "%d %d %d %lf |", opportunity.AT, opportunity.parameter,
             opportunity.foundOptimal, opportunity.score);
   fprintf(stdout, "\n");

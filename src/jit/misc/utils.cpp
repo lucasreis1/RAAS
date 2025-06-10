@@ -8,3 +8,5 @@ std::string getLastSubstringAfterSlash(const std::string &input) {
 
   return input.substr(lastSlashPos+1);
 }
+
+bool isNan(double v) { return v != v; }

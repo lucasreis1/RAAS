@@ -1,8 +1,10 @@
 #include "Core.h"
+#include "misc/utils.h"
 #include "passes/Passes.h"
 #include <cxxabi.h>
 #include <iostream>
 #include <fstream>
+#include <iostream>
 
 EvaluationSystem::EvaluationSystem(
     std::unique_ptr<ConfigurationEvaluation> eval, bool trainingMode,
@@ -91,6 +93,8 @@ void EvaluationSystem::incrementPreciseTime(double precTime) {
 }
 
 void EvaluationSystem::updateQualityValues(double error, double time) {
+  if (isNan(error))
+    error = 1.;
   evaluator->APQ.updateValues(error, time);
 }
 

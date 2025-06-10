@@ -12,6 +12,7 @@
 #include "llvm/ExecutionEngine/Orc/ThreadSafeModule.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Dominators.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -20,7 +21,9 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/IPO/ElimAvailExtern.h"
 #include "llvm/Transforms/IPO/ExtractGV.h"
+#include "llvm/Transforms/IPO/GlobalDCE.h"
 #include "llvm/Transforms/IPO/StripSymbols.h"
 #include "llvm/Transforms/Scalar/Reg2Mem.h"
 #include "llvm/Transforms/Utils/Cloning.h"
@@ -332,6 +335,40 @@ ApproxLayer::getApproximableFunctions(const ThreadSafeModule &TSM,
   return approxFns;
 }
 
+void keepAliasesAlive(Module &M, std::string approximableFn) {
+  SmallVector<GlobalAlias *, 4> movableAliases;
+  auto Fn = M.getFunction(approximableFn);
+
+  assert(Fn && "Function does not exist in module!");
+  for (auto &GA : M.aliases()) {
+    if (GA.getAliasee()->stripPointerCasts() == Fn)
+      movableAliases.push_back(&GA);
+  }
+
+  if (not movableAliases.empty()) {
+    // create a function stub for the aliases that must call the approx Fn
+    Function *Stub = Function::Create(Fn->getFunctionType(),
+                                      GlobalValue::LinkageTypes::PrivateLinkage,
+                                      Fn->getName() + "_stub", &M);
+
+    Stub->copyAttributesFrom(Fn);
+    auto BB = BasicBlock::Create(M.getContext(), "entry", Stub);
+    IRBuilder<> Builder(BB);
+
+    SmallVector<Value *, 8> Args;
+    for (auto &Arg : Stub->args())
+      Args.push_back(&Arg);
+
+    auto *CI = Builder.CreateCall(Fn->getFunctionType(), Fn, Args);
+    CI->setCallingConv(Fn->getCallingConv());
+
+    Builder.CreateRet(Stub->getReturnType()->isVoidTy() ? nullptr : CI);
+
+    for (auto GA : movableAliases)
+      GA->setAliasee(Stub);
+  }
+}
+
 // split module, returns module that contains all functions from the original
 void ApproxLayer::splitModule(ThreadSafeModule &TSM, JITDylib &JD,
                               approximableFunctions &approxFns) {
@@ -339,9 +376,11 @@ void ApproxLayer::splitModule(ThreadSafeModule &TSM, JITDylib &JD,
 
   for (auto function : approxFns) {
     // this function was already defined in another MU. Do not add it again
-    if (FunctionNameToResourcesMap.find(function) !=
-        FunctionNameToResourcesMap.end())
-      llvm_unreachable("function already defined from another MU!\n");
+    assert(FunctionNameToResourcesMap.find(function) ==
+               FunctionNameToResourcesMap.end() &&
+           "function already defined from another MU!");
+
+    keepAliasesAlive(*TSM.getModuleUnlocked(), function);
     auto clonedModule = cloneToNewContext(TSM, [&](const GlobalValue &GV) {
       if (GV.getName() == function) {
         toDelete.push_back(const_cast<GlobalValue *>(&GV));
@@ -370,8 +409,7 @@ void ApproxLayer::splitModule(ThreadSafeModule &TSM, JITDylib &JD,
     });
 
     Function *Fn = clonedModule.getModuleUnlocked()->getFunction(function);
-    if (!Fn)
-      llvm_unreachable("how come the cloned module does not have the function");
+    assert(Fn && "Cloned function must exist in the cloned module!\n");
 
     FunctionNameToResourcesMap.insert(std::make_pair(
         function, PerFunctionResources(JD, std::move(clonedModule),
@@ -393,10 +431,12 @@ void ApproxLayer::splitModule(ThreadSafeModule &TSM, JITDylib &JD,
     PB.registerLoopAnalyses(LAM);
     PB.crossRegisterProxies(LAM, FAM, CGAM, MAM);
     ModulePassManager PM;
-    PM.addPass(ExtractGVPass(toDelete, true, false));
+    PM.addPass(ExtractGVPass(toDelete));
     PM.addPass(StripDeadPrototypesPass());
     PM.addPass(StripDeadDebugInfoPass());
     PM.addPass(StripDeadPrototypesPass());
+    PM.addPass(GlobalDCEPass());
+    PM.addPass(VerifierPass());
     PM.run(M, MAM);
   });
 }
@@ -471,11 +511,6 @@ Error ApproxLayer::updateApproximations() {
   for (auto &II : toUpdateMap) {
     auto Function = II.first();
     auto &config = II.second;
-    // LLVM_DEBUG(
-    //     dbgs() << "[RAAS] calling addApproximateVersion for function "
-    //            << Function << " with combination "
-    //            << EvaluationSystem::getCombinationFromConfiguration(config)
-    //            << '\n');
     LLVM_DEBUG(
         dbgs() << "[RAAS] calling addApproximateVersion for function "
                << Function << " with combination "

@@ -55,9 +55,6 @@ private:
 
   // main dylib
   JITDylib &MainJD;
-  // support dylib (standard symbols from process + original/instrumented
-  // symbols for approximable functions)
-  // JITDylib &SupportJD;
 
   std::string programName;
 

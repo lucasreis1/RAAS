@@ -32,7 +32,8 @@ public:
               LazyCallThroughManager &LCTMgr,
               IndirectStubsManagerBuilder BuildIndirectStubsManager);
   ApproxLayer(ExecutionSession &ES, DataLayout &DL, IRLayer &baseLayer,
-              EvaluationSystem &evaluationSystem, LazyCallThroughManager &LCTMgr,
+              EvaluationSystem &evaluationSystem,
+              LazyCallThroughManager &LCTMgr,
               IndirectStubsManagerBuilder BuildIndirectStubsManager,
               bool noApprox = false);
 
@@ -139,6 +140,11 @@ private:
 
   const DataLayout &DL;
 };
+
+// Aliases that point to a declaration are not acceptable in IR. If we split a
+// module, make sure the aliases point to a usable stub
+static void keepAliasesAlive(Module &originalModule,
+                             std::string approximableFn);
 
 /// Render approximableFunctions.
 raw_ostream &operator<<(raw_ostream &OS,

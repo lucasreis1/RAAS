@@ -1,5 +1,6 @@
 #include "jit/JIT.h"
 #include "llvm/IR/Module.h"
+#include "jit/passes/Passes.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
@@ -24,10 +25,6 @@ static cl::opt<bool>
     clNoApprox("no-approx", cl::NotHidden, cl::init(false), cl::Optional,
                cl::desc("Execute the JIT pipeline without applying "
                         "approximations. Ideal for overhead checks"));
-
-// static cl::opt<std::string>
-//     inputFile("<bitcode-file>", cl::Positional, cl::Required,
-//               cl::desc("Path to the application bitcode file"));
 
 static cl::list<std::string>
     Dylibs("dlopen", cl::CommaSeparated,
@@ -122,10 +119,21 @@ int main(int argc, char *argv[]) {
   ExitOnErr(loadDylibs());
 
   // if this option is set, print approximable functions and exit
-  // if (clPrintFunctions) {
-  //  passlist::printApproxOpportunities(*m.get());
-  //  return 0;
-  //}
+  if (clPrintFunctions) {
+    SMDiagnostic error;
+    LLVMContext ctx;
+    passlist::buildPasses();
+    for (auto &file : approxFiles) {
+      auto m = parseIRFile(file, error, ctx);
+
+      if (m.get() == nullptr) {
+        errs() << "Invalid file for module " << m->getName() << '\n';
+        return 1;
+      }
+      passlist::printApproxOpportunities(*m.get());
+    }
+    return 0;
+  }
 
   // create the JIT sending the application IR module and eval function module
   // if trainingMode is set to default, let the JIT decide program name

@@ -34,27 +34,32 @@ bool isApproximable(const Function &F) {
 void printApproxOpportunities(const Function &F) {
   // skip delcarations
   if (F.isDeclaration())
-    return; 
-  
-  for (auto &apprPass : Passes)  {
+    return;
+
+  for (auto &apprPass : Passes) {
+    bool hasApprox = false;
     if (apprPass->isApproximable(F)) {
+      if (!hasApprox) {
+        errs() << "=============== " << F.getName() << " ===============\n";
+        hasApprox = true;
+      }
       apprPass->printApproximationOpportunities(F);
     }
   }
 }
 
 void printApproxOpportunities(const Module &M) {
-  for (const auto &F : M) 
+  for (const auto &F : M)
     printApproxOpportunities(F);
 }
 
 unsigned searchApproximableCalls(const Function &F) {
   // skip delcarations
   if (F.isDeclaration())
-    return 0; 
-  
+    return 0;
+
   unsigned approxCalls = 0;
-  for (auto &apprPass : Passes)  {
+  for (auto &apprPass : Passes) {
     if (apprPass->isApproximable(F)) {
       approxCalls += apprPass->searchApproximableCalls(F);
     }

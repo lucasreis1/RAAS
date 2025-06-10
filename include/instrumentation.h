@@ -19,6 +19,7 @@ inline __attribute__((always_inline)) void RAAS_evaluate_output() {
 #endif
 
 static double RAAS_time_begin;
+__attribute__((visibility("default"))) double raas_dtime;
 
 static inline void RAAS_roi_begin() {
   struct timeval t;
@@ -30,9 +31,5 @@ static inline void RAAS_roi_end() {
   struct timeval t;
   gettimeofday(&t, NULL);
   double time_end = (double)t.tv_sec + (double)t.tv_usec * 1e-6;
-  double delta = time_end - RAAS_time_begin;
-
-  FILE *f = fopen(".jit_time.txt", "w");
-  fprintf(f, "%lf", delta);
-  fclose(f);
+  raas_dtime = time_end - RAAS_time_begin;
 }

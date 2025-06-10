@@ -4,8 +4,13 @@
 #include "passes/Passes.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/Core.h"
+#include "llvm/ExecutionEngine/Orc/DebugObjectManagerPlugin.h"
 #include "llvm/ExecutionEngine/Orc/ELFNixPlatform.h"
+#include "llvm/ExecutionEngine/Orc/EPCDebugObjectRegistrar.h"
 #include "llvm/ExecutionEngine/Orc/ExecutionUtils.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderGDB.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/JITLoaderPerf.h"
+#include "llvm/ExecutionEngine/Orc/TargetProcess/RegisterEHFrames.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/DynamicLibrary.h"
@@ -179,6 +184,14 @@ ApproxJIT::ApproxJIT(std::unique_ptr<ExecutionSession> ES,
   ExitOnErr(TransformLayer.add(MainJD.getDefaultResourceTracker(),
                                std::move(evalModule)));
 
+#ifdef DEBUG
+  // plugin for GDB debugging
+  errs() << "setting debug info\n";
+  ObjectLayer.addPlugin(std::make_unique<DebugObjectManagerPlugin>(
+      *this->ES, ExitOnErr(orc::createJITLoaderGDBRegistrar(*this->ES)), true,
+      true));
+#endif
+
   // debug if env variable is set
   if (std::getenv("DEBUG"))
     enableDebug();
@@ -331,6 +344,7 @@ Expected<ExecutorSymbolDef> ApproxJIT::lookupOrLoadSymbol(StringRef Name,
   if (auto Err = SymOrErr.takeError()) {
     // Consume the error.
     consumeError(std::move(Err));
+
 
     LLVM_DEBUG(
         dbgs()
@@ -520,3 +534,14 @@ void ApproxJIT::setForbiddenApproxList(
 
 } // namespace orc
 } // namespace llvm
+ 
+static LLVM_ATTRIBUTE_USED void linkComponents() {
+  errs() << "Linking in runtime functions\n"
+         << (void *)&llvm_orc_registerEHFrameSectionWrapper << '\n'
+         << (void *)&llvm_orc_deregisterEHFrameSectionWrapper << '\n'
+         << (void *)&llvm_orc_registerJITLoaderGDBWrapper << '\n'
+         << (void *)&llvm_orc_registerJITLoaderGDBAllocAction << '\n'
+         << (void *)&llvm_orc_registerJITLoaderPerfStart << '\n'
+         << (void *)&llvm_orc_registerJITLoaderPerfEnd << '\n'
+         << (void *)&llvm_orc_registerJITLoaderPerfImpl << '\n';
+}
