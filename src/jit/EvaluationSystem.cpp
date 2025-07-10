@@ -2,14 +2,14 @@
 #include "misc/utils.h"
 #include "passes/Passes.h"
 #include <cxxabi.h>
-#include <iostream>
 #include <fstream>
 #include <iostream>
 
 EvaluationSystem::EvaluationSystem(
     std::unique_ptr<ConfigurationEvaluation> eval, bool trainingMode,
     std::string programName)
-    : evaluator(std::move(eval)), trainingMode(trainingMode), programName(programName) {
+    : evaluator(std::move(eval)), trainingMode(trainingMode),
+      programName(programName) {
   assert((trainingMode && programName != "" || !trainingMode) &&
          "Asked to store JSON but program name not informed!\n");
 }
@@ -88,14 +88,20 @@ void EvaluationSystem::printApproximationOpportunities(const Function &F) {
     apprPass->printApproximationOpportunities(F);
 }
 
-void EvaluationSystem::incrementPreciseTime(double precTime) {
-  evaluator->APQ.incrementPreciseTime(precTime);
+void EvaluationSystem::incrementRoIPreciseTime(double precTime) {
+  evaluator->APQ.incrementRoIPreciseTime(precTime);
 }
 
-void EvaluationSystem::updateQualityValues(double error, double time) {
+void EvaluationSystem::incrementIterationPreciseTime(double precTime) {
+  evaluator->APQ.incrementIterationPreciseTime(precTime);
+}
+
+void EvaluationSystem::updateQualityValues(double error, double time,
+                                           double iterationTime) {
   if (isNan(error))
     error = 1.;
-  evaluator->APQ.updateValues(error, time);
+  evaluator->APQ.updateRoIValues(error, time);
+  evaluator->APQ.updateIterationTime(iterationTime);
 }
 
 StringMap<configurationPerTechniqueMap>
@@ -132,7 +138,7 @@ EvaluationSystem::getConfigurationForFunction(StringRef functionName) {
 }
 
 double EvaluationSystem::getLastSpeedup() {
-  return evaluator->APQ.getSpeedups().second;
+  return evaluator->APQ.getRoISpeedups().second;
 }
 
 double EvaluationSystem::getLastError() {
@@ -151,8 +157,23 @@ void EvaluationSystem::storeConfigurationToFile() {
   if (f.is_open()) {
     f << jsonStr;
     f.close();
-  }
-  else {
+  } else {
     fprintf(stderr, "Unable to open file %s\n", fileName.c_str());
   }
+}
+
+bool EvaluationSystem::hasFoundOptimalConfiguration(std::string functionName) {
+  return evaluator->hasFoundOptimalConfiguration(functionName);
+}
+
+bool EvaluationSystem::monitorsMemoryConsumption() {
+  return evaluator->monitorsMemoryConsumption();
+}
+
+void EvaluationSystem::updateMemoryConsumption(long memory) {
+  evaluator->APQ.updateMemoryConsumption(memory); 
+}
+
+void EvaluationSystem::setMonitorMemoryConsumption(bool shouldMonitor) {
+  evaluator->setMonitorMemoryConsumption(shouldMonitor);
 }

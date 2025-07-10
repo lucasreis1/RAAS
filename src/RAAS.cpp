@@ -1,6 +1,6 @@
 #include "jit/JIT.h"
-#include "llvm/IR/Module.h"
 #include "jit/passes/Passes.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Error.h"
@@ -49,7 +49,7 @@ static cl::opt<double>
                cl::desc("Error limit for evaluation system"));
 
 static cl::opt<std::string> trainingModeOpt(
-    "training-mode", cl::init("default"), cl::Optional,
+    "training-mode", cl::init(""), cl::Optional,
     cl::desc("Store JSON file for each configuration. Starts "
              "application by reading from previous JSON file. Pass a string "
              "after the option to inform the name of the json file"));
@@ -62,11 +62,16 @@ static cl::opt<TIER> scoringAggressiveness(
     "scoring-aggressiveness",
     cl::desc("Chose how agressive we want to value speedups over lower errors "
              "for configurations"),
-        cl::values(clEnumVal(low, "Favor lower error rates first"),
-                   clEnumVal(medium, "Balance between favoring higher "
-                                           "speedups and lower error rates"),
-                   clEnumVal(high, "Favor higher speedups first")),
+    cl::values(clEnumVal(low, "Favor lower error rates first"),
+               clEnumVal(medium, "Balance between favoring higher "
+                                 "speedups and lower error rates"),
+               clEnumVal(high, "Favor higher speedups first")),
     cl::init(low));
+
+static cl::opt<bool> clMemoryAware(
+    "memory-conscious", cl::init(false), cl::Optional,
+    cl::desc("Set the evaluation system to pay attention and discarding "
+             "approximations that introduce memory leaks"));
 
 // json file that lists skippable approximations
 // should follow:
@@ -110,6 +115,7 @@ int main(int argc, char *argv[]) {
   trainingModeOpt.addCategory(RAASCategory);
   clPrintRankedOpportunities.addCategory(RAASCategory);
   scoringAggressiveness.addCategory(RAASCategory);
+  clMemoryAware.addCategory(RAASCategory);
   // hide options not from our program
   cl::HideUnrelatedOptions(RAASCategory);
 
@@ -139,11 +145,11 @@ int main(int argc, char *argv[]) {
   // if trainingMode is set to default, let the JIT decide program name
   if (trainingModeOpt.getNumOccurrences())
     J = ExitOnErr(orc::ApproxJIT::Create(evaluationFile, scoringAggressiveness,
-                                         errorLimit, trainingModeOpt, true,
-                                         clNoApprox));
+                                         errorLimit, clNoApprox,
+                                         trainingModeOpt));
   else
     J = ExitOnErr(orc::ApproxJIT::Create(evaluationFile, scoringAggressiveness,
-                                         errorLimit, "", false, clNoApprox));
+                                         errorLimit, clNoApprox, ""));
 
   // read list of forbidden approximations
   if (forbiddenApproxFile.getNumOccurrences()) {
@@ -155,6 +161,10 @@ int main(int argc, char *argv[]) {
     }
     J->setForbiddenApproxList(std::move(forbiddenApproxList.get()));
   }
+
+  // monitor memory consumption
+  if (clMemoryAware)
+    J->setMemoryAware();
 
   if (not inputFiles.getNumOccurrences() and
       not approxFiles.getNumOccurrences()) {

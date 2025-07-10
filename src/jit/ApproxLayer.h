@@ -84,12 +84,32 @@ private:
       return Fn;
     }
 
+    llvm::Error addCombinationToMap(std::string combination) {
+      if (usedCombinations.count(combination))
+        return make_error<StringError>("Combination already present in map", inconvertibleErrorCode());
+      usedCombinations.insert(combination);
+      return Error::success();
+    }
+
+    llvm::Error removeCombinationFromMap(std::string combination) {
+      if (not usedCombinations.count(combination))
+        return make_error<StringError>("Combination not present in map", inconvertibleErrorCode());
+      usedCombinations.erase(combination);
+      return Error::success();
+    }
+
+    const std::set<std::string> getUsedCombinations() {
+      return usedCombinations;
+    }
+
     const JITSymbolFlags getFlags() { return SymbolFlags; }
 
   private:
     JITDylib &Dylib;
     ThreadSafeModule TSM;
     JITSymbolFlags SymbolFlags;
+    // combinations that are already approximated for this function
+    std::set<std::string> usedCombinations;
   };
 
   JITTargetAddress jitAddress;
@@ -105,6 +125,8 @@ private:
   Expected<ThreadSafeModule>
   approximateModule(ThreadSafeModule TSM, StringRef functionName,
                     configurationPerTechniqueMap configuration);
+
+  llvm::Error removeAllCombinationsButOne(std::string functionName, std::string combinationToKeep);
   // targeting a similar approach from CompileOnDemand
   StringMap<PerFunctionResources> FunctionNameToResourcesMap;
   // shamelessly stolen from CODLayer
@@ -134,8 +156,9 @@ private:
   PerDylibResourcesMap DylibResources;
   LazyCallThroughManager &LCTMgr;
 
-  // set to true if we want to run without applying transformations
-  // use only for overhead measure
+  /* set to true if we want to run without applying transformations.
+   * Use only for overhead measure
+   */
   bool ignoreApproximations;
 
   const DataLayout &DL;

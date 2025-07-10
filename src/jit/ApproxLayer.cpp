@@ -284,6 +284,9 @@ ApproxLayer::addApproximateVersion(std::string functionName,
       return Err;
     }
 
+    // add combination to the map of used combinations for this function
+    exitOnErr(resources.addCombinationToMap(combination));
+
     // trigger lookup again to force materialization of the symbol
     exitOnErr(this->lookup(approxJD, mangledSymbName,
                            JITDylibLookupFlags::MatchAllSymbols));
@@ -509,15 +512,24 @@ Error ApproxLayer::updateApproximations() {
   // iterate over the map, add a (possibly) new approximate version to each
   // function changed by the evaluation system
   for (auto &II : toUpdateMap) {
-    auto Function = II.first();
+    auto Function = II.first().str();
     auto &config = II.second;
     LLVM_DEBUG(
         dbgs() << "[RAAS] calling addApproximateVersion for function "
                << Function << " with combination "
                << EvaluationSystem::getCombinationFromConfiguration(config)
                << '\n');
-    if (auto Err = this->addApproximateVersion(Function.str(), config))
+    if (auto Err = this->addApproximateVersion(Function, config))
       return Err;
+
+    // if we are at optimal combination for this function, remove the other
+    // configurations
+    if (evaluationSystem.hasFoundOptimalConfiguration(Function)) {
+      if (auto Err = removeAllCombinationsButOne(
+              Function,
+              EvaluationSystem::getCombinationFromConfiguration(config)))
+        return Err;
+    }
   }
   return Error::success();
 }
@@ -565,6 +577,36 @@ ApproxLayer::getFunctionResources(const std::string FunctionName) {
                                    inconvertibleErrorCode());
 
   return I->second;
+}
+
+llvm::Error
+ApproxLayer::removeAllCombinationsButOne(std::string functionName,
+                                         std::string combinationToKeep) {
+  LLVM_DEBUG(dbgs() << "[RAAS] Removing all combinations but " +
+                           combinationToKeep + " for function "
+                    << functionName << '\n');
+  auto resources = getFunctionResources(functionName);
+  if (auto Err = resources.takeError()) {
+    return Err;
+  }
+
+  auto &perDyLibR = getPerDylibResources(resources->getDylib());
+  MangleAndInterner Mangle(getExecutionSession(), DL);
+
+  auto combinationSet = resources->getUsedCombinations();
+  for (auto &el : combinationSet) {
+    if (el == combinationToKeep)
+      continue;
+    // remove from the map
+    if (auto Err = resources->removeCombinationFromMap(el))
+      return Err;
+
+    // remove from the dylib
+    if (auto Err =
+            perDyLibR.getApproxDylib().remove({Mangle(functionName + el)}))
+      return Err;
+  }
+  return Error::success();
 }
 
 /// Render approximableFunctions
