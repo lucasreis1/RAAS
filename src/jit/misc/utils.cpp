@@ -21,8 +21,8 @@ llvm::Expected<long> get_current_rss() {
     }
     fclose(fp);
     return rss;
-  } else
-    return llvm::make_error<llvm::StringError>(
-        "Unable to open /proc/self/statm. Are we running on Linux?",
-        llvm::inconvertibleErrorCode());
+  }
+  return llvm::make_error<llvm::StringError>(
+      "Unable to open /proc/self/statm. Are we running on Linux?",
+      llvm::inconvertibleErrorCode());
 }

@@ -64,10 +64,6 @@ void SimpleEvaluator::buildApproximationStructures(
       functionName, OpportunitiesPerFunction(functionName.str(), evalMap)));
 }
 
-void debugDiscardedApproximations() {
-
-}
-
 // the desired one
 void SimpleEvaluator::updateSuggestedConfigurations() {
   // before starting, store the max RoI time to be the precise accumulated time
@@ -104,7 +100,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           if (lastError > errorLimit or isNan(lastError))
             lastModifiedOp.foundOptimal = true;
         }
-      } else
+      } else // skip to the next valid configuration
         iterationCount += LOOPS_PER_CONFIG - 1;
     }
     // start our combination heuristic evaluation
@@ -141,7 +137,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
               APQ.getIterationTimes().second;
           // set ideal memory usage for this opportunity only after the first
           // loop, as we increase memory usage by recompiling the symbol
-          if (monitorsMemoryConsumption())
+          if (monitorsMemoryConsumption() and heuristicalCount == 1)
             lastCheckedOpportunity->idealConfig.memoryUsage =
                 ExitOnErr(APQ.getMemoryConsumption());
         }
@@ -179,25 +175,35 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
             lastCheckedOpportunity->idealConfig = {
                 lastCheckedOpportunity->speedup,
                 lastCheckedOpportunity->parameter,
-                lastCheckedOpportunity->iterationTime};
+                lastCheckedOpportunity->iterationTime,
+                lastCheckedOpportunity->memoryUsage};
           }
 
-          LLVM_DEBUG(if (monitorsMemoryConsumption() and
-                         lastCheckedOpportunity->memoryUsage !=
-                             lastCheckedOpportunity->idealConfig.memoryUsage) {
-            dbgs() << "[RAAS] discarding parameter "
-                   << lastCheckedOpportunity->parameter << " for config "
-                   << lastCheckedOpportunity->parent->functionName << "|"
-                   << lastCheckedOpportunity->index + 1
-                   << " for detected memory leak\n";
-          });
-          // if we are still not at maximum parameter and still achieving
-          // speedups (or are approximating via GEMMs), keep increasing the
-          // parameter
+          if (monitorsMemoryConsumption() and
+              lastCheckedOpportunity->memoryUsage !=
+                  lastCheckedOpportunity->idealConfig.memoryUsage) {
+            LLVM_DEBUG(dbgs() << "[RAAS] discarding config "
+                              << lastCheckedOpportunity->parent->functionName
+                              << "|" << lastCheckedOpportunity->index + 1
+                              << " for detected memory leak (before => "
+                              << lastCheckedOpportunity->idealConfig.memoryUsage
+                              << "| after => "
+                              << lastCheckedOpportunity->memoryUsage << ")\n";);
+            lastCheckedOpportunity->idealConfig.parameter = 0;
+          }
+          // if we are either:
+          // - still achieving speedups
+          // - approximating via GEMMs
+          // - monitoring memory usage and achieving stable memory
+          // and not at last parameter, keep increasing paramter
           if ((lastCheckedOpportunity->speedup >= 1. or
                lastCheckedOpportunity->AT == approxTechnique::GAP) and
               lastCheckedOpportunity->parameter !=
-                  lastCheckedOpportunity->maxParameter) {
+                  lastCheckedOpportunity->maxParameter and
+              (monitorsMemoryConsumption() and
+                   lastCheckedOpportunity->memoryUsage ==
+                       lastCheckedOpportunity->idealConfig.memoryUsage or
+               not monitorsMemoryConsumption())) {
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
             lastCheckedOpportunity->iterationTime = 0.;
@@ -227,8 +233,6 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
   }
   LLVM_DEBUG(dbgs() << "[RAAS] Opportunities recomputed for iteration "
                     << iterationCount << "\n");
-  // stop counting iterations after we did preprocessing
-  // if (iterationCount <= evaluationLimit)
   iterationCount++;
 
   for (auto opportunity : opportunitiesWrapper)

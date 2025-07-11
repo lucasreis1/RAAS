@@ -70,7 +70,7 @@ static cl::opt<TIER> scoringAggressiveness(
 
 static cl::opt<bool> clMemoryAware(
     "memory-conscious", cl::init(false), cl::Optional,
-    cl::desc("Set the evaluation system to pay attention and discarding "
+    cl::desc("Set the evaluation system to pay attention to and discard "
              "approximations that introduce memory leaks"));
 
 // json file that lists skippable approximations
