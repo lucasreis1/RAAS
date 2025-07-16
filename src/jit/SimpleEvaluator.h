@@ -41,16 +41,15 @@ private:
     // This is only used as a fallback to ensure we are not
     // getting application slowdowns, even if we have speedups on RoI
     double iterationTime = 0.;
-    // System memory usage during this process execution
+    // Number of times memory increased during execution of this configuration
     // We log this for memory-aware approaches where we don't want approximations to introduce memory leaks
-    long memoryUsage = 0L;
+    unsigned memoryUsageChanges = 0;
     // <iteration_time, speedup, parameter> pair that indicates the parameter
     // which yields maximum speedup for this configuration
     struct idealCfgStruct {
       double speedup = 1.;
       unsigned parameter = 0;
       double iterationTime = 0.;
-      long memoryUsage = 0L;
     };
 
     idealCfgStruct idealConfig;

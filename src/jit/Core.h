@@ -134,12 +134,12 @@ public:
   class approximationQuality {
     double RoIpreciseTime = 0.0;
     double IterationPreciseTime = 0.0;
-    std::optional<long> memoryConsumption = 0.0;
     // first -> second to last loop
     // second -> last loop
     std::pair<double, double> RoIspeedups;
     std::pair<double, double> errors;
     std::pair<double, double> iterationTimes;
+    std::optional<std::pair<long, long>> memoryConsumption;
 
   public:
     approximationQuality() {
@@ -157,9 +157,14 @@ public:
       iterationTimes = {iterationTimes.second, time};
     }
 
-    void updateMemoryConsumption(long memory) { memoryConsumption = memory; }
+    void updateMemoryConsumption(long memory) { 
+      if (memoryConsumption.has_value())
+        memoryConsumption = {memoryConsumption.value().second, memory};
+      else
+       memoryConsumption = {0L, memory};
+    }
 
-    llvm::Expected<long> getMemoryConsumption() {
+    llvm::Expected<std::pair<long, long>> getMemoryConsumption() {
       if (memoryConsumption.has_value())
         return memoryConsumption.value();
 

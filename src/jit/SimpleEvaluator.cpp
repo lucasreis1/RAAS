@@ -135,23 +135,22 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           lastCheckedOpportunity->speedup += APQ.getRoISpeedups().second;
           lastCheckedOpportunity->iterationTime +=
               APQ.getIterationTimes().second;
-          // set ideal memory usage for this opportunity only after the first
+          // monitor memory usage for this opportunity only after the first
           // loop, as we increase memory usage by recompiling the symbol
-          if (monitorsMemoryConsumption() and heuristicalCount == 1)
-            lastCheckedOpportunity->idealConfig.memoryUsage =
-                ExitOnErr(APQ.getMemoryConsumption());
+          if (monitorsMemoryConsumption() and heuristicalCount > 1) {
+            // first -> second to last, second -> last
+            auto memoryPair = ExitOnErr(APQ.getMemoryConsumption());
+            // memory changed between this and the second-to-last loop. This may
+            // indicate leaks
+            if (memoryPair.second > memoryPair.first)
+              lastCheckedOpportunity->memoryUsageChanges++;
+          }
         }
-        if (heuristicalCount >= LOOPS_PER_CONFIG) {
+        if (heuristicalCount == LOOPS_PER_CONFIG) {
           // reset our count and speedup
           heuristicalCount = -1;
           lastCheckedOpportunity->speedup /= LOOPS_PER_CONFIG;
           lastCheckedOpportunity->iterationTime /= LOOPS_PER_CONFIG;
-          // we are now after the last stage of this configuration, see how
-          // much memory we are using
-          if (monitorsMemoryConsumption())
-            lastCheckedOpportunity->memoryUsage =
-                ExitOnErr(APQ.getMemoryConsumption());
-
           auto lastError = APQ.getErrors().second;
           // To change the ideal configuration for this opportunity, it must:
           // 1 - achieve RoI speedups bigger than the ones that are already
@@ -159,8 +158,8 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           // 2 - have an error lower than our maximum threshold
           // 3 - have a total iteration time (entire application) lower
           //      than the one already ideal (2% margin of error)
-          // 4 - IF we are monitoring memory leaks, memory usage remains
-          // constant after NUMBER_OF_LOOPS iterations of the same config
+          // 4 - IF we are monitoring memory leaks, memory usage changed less
+          // than NUMBER_OF_LOOPS - 1 times
           if (lastCheckedOpportunity->speedup >
                   lastCheckedOpportunity->idealConfig.speedup and
               lastError <= errorLimit and not isNan(lastError) and
@@ -168,27 +167,28 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
                   lastCheckedOpportunity->idealConfig.iterationTime * 1.02 and
               // memory leaks monitoring
               (monitorsMemoryConsumption() and
-                   lastCheckedOpportunity->memoryUsage ==
-                       lastCheckedOpportunity->idealConfig.memoryUsage or
+                   lastCheckedOpportunity->memoryUsageChanges <
+                       LOOPS_PER_CONFIG - 1 or
                not monitorsMemoryConsumption())) {
             // update the optimal configuration
             lastCheckedOpportunity->idealConfig = {
                 lastCheckedOpportunity->speedup,
                 lastCheckedOpportunity->parameter,
-                lastCheckedOpportunity->iterationTime,
-                lastCheckedOpportunity->memoryUsage};
+                lastCheckedOpportunity->iterationTime};
           }
 
           if (monitorsMemoryConsumption() and
-              lastCheckedOpportunity->memoryUsage !=
-                  lastCheckedOpportunity->idealConfig.memoryUsage) {
-            LLVM_DEBUG(dbgs() << "[RAAS] discarding config "
+              lastCheckedOpportunity->memoryUsageChanges >=
+                  LOOPS_PER_CONFIG - 1) {
+            LLVM_DEBUG(static ExitOnError exitOnErr;
+                       dbgs() << "[RAAS] discarding config "
                               << lastCheckedOpportunity->parent->functionName
                               << "|" << lastCheckedOpportunity->index + 1
-                              << " for detected memory leak (before => "
-                              << lastCheckedOpportunity->idealConfig.memoryUsage
-                              << "| after => "
-                              << lastCheckedOpportunity->memoryUsage << ")\n";);
+                              << " for detected memory leak ("
+                              << lastCheckedOpportunity->memoryUsageChanges
+                              << " changes | ends at "
+                              << exitOnErr(APQ.getMemoryConsumption()).second
+                              << " KB)\n";);
             lastCheckedOpportunity->idealConfig.parameter = 0;
           }
           // if we are either:
@@ -201,12 +201,13 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
               lastCheckedOpportunity->parameter !=
                   lastCheckedOpportunity->maxParameter and
               (monitorsMemoryConsumption() and
-                   lastCheckedOpportunity->memoryUsage ==
-                       lastCheckedOpportunity->idealConfig.memoryUsage or
+                   lastCheckedOpportunity->memoryUsageChanges <
+                       LOOPS_PER_CONFIG - 1 or
                not monitorsMemoryConsumption())) {
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
             lastCheckedOpportunity->iterationTime = 0.;
+            lastCheckedOpportunity->memoryUsageChanges = 0;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
           } else { // else, set the opportunity as already checked and set its
                    // optimal parameter
