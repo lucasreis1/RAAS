@@ -84,23 +84,27 @@ private:
       return Fn;
     }
 
-    llvm::Error addCombinationToMap(std::string combination) {
-      if (usedCombinations.count(combination))
-        return make_error<StringError>("Combination already present in map", inconvertibleErrorCode());
-      usedCombinations.insert(combination);
+    llvm::Error addRT(ResourceTrackerSP RSP) {
+      if (RT)
+        return make_error<StringError>(
+            "Function already has temp ResourceTracker associated with it!",
+            inconvertibleErrorCode());
+
+      RT = RSP;
       return Error::success();
     }
 
-    llvm::Error removeCombinationFromMap(std::string combination) {
-      if (not usedCombinations.count(combination))
-        return make_error<StringError>("Combination not present in map", inconvertibleErrorCode());
-      usedCombinations.erase(combination);
+    llvm::Error removeRT() {
+      if (RT == nullptr)
+        return make_error<StringError>(
+            "Function has no ResourceTracker associated with it!",
+            inconvertibleErrorCode());
+      RT = nullptr;
+
       return Error::success();
     }
 
-    const std::set<std::string> getUsedCombinations() {
-      return usedCombinations;
-    }
+    const ResourceTrackerSP getRT() { return RT; }
 
     const JITSymbolFlags getFlags() { return SymbolFlags; }
 
@@ -108,8 +112,10 @@ private:
     JITDylib &Dylib;
     ThreadSafeModule TSM;
     JITSymbolFlags SymbolFlags;
-    // combinations that are already approximated for this function
-    std::set<std::string> usedCombinations;
+    // each function has a resource tracker associated with it's approximate
+    // symbols. This is intended do store symbols that will be discarded later
+    // on
+    ResourceTrackerSP RT = nullptr;
   };
 
   JITTargetAddress jitAddress;
@@ -126,7 +132,11 @@ private:
   approximateModule(ThreadSafeModule TSM, StringRef functionName,
                     configurationPerTechniqueMap configuration);
 
-  llvm::Error removeAllCombinationsButOne(std::string functionName, std::string combinationToKeep);
+  // Remove the resources associated to all symbols not belonging to this
+  // specific combination from the dylib. In practice, we are clearing the dylib
+  // and letting RAAS recompile the correct symbol as we don't have a sensible
+  // way to move a single symbol from one RT to another
+  llvm::Error removeUnusedConfigurationSymbols(std::string functionName);
   // targeting a similar approach from CompileOnDemand
   StringMap<PerFunctionResources> FunctionNameToResourcesMap;
   // shamelessly stolen from CODLayer

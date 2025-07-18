@@ -59,9 +59,6 @@ private:
   void discard(const llvm::orc::JITDylib &JD,
                const llvm::orc::SymbolStringPtr &sym) override {
     LLVM_DEBUG(dbgs() << "[RAAS] Discarding symbol " << sym << " (noop)\n";);
-    // if (not L.FunctionNameToResourcesMap.count(*sym))
-    //   llvm_unreachable("resources not stored for discardable function!\n");
-    // L.FunctionNameToResourcesMap.erase(*sym);
   }
 
   ApproxLayer &L;
@@ -207,7 +204,7 @@ void ApproxLayer::emit(std::unique_ptr<MaterializationResponsibility> R,
   auto approxFns = getApproximableFunctions(TSM, R->getSymbols());
   LLVM_DEBUG(dbgs() << "[RAAS] Removing from module "
                     << TSM.getModuleUnlocked()->getName()
-                    << " functions: " << approxFns << '\n';);
+                    << " approximable functions: " << approxFns << '\n';);
 
   splitModule(TSM, R->getTargetJITDylib(), approxFns);
 
@@ -265,6 +262,13 @@ ApproxLayer::addApproximateVersion(std::string functionName,
   auto mangledSymbName = Mangle(functionName + combination);
   auto &approxJD = getPerDylibResources(resources.getDylib()).getApproxDylib();
 
+  auto RT = resources.getRT();
+
+  if (RT == nullptr) {
+    RT = approxJD.createResourceTracker();
+    exitOnErr(resources.addRT(RT));
+  }
+
   auto &ISMgr = getPerDylibResources(resources.getDylib()).getISManager();
   ExecutorAddr functionAddress;
   LLVM_DEBUG(dbgs() << "[RAAS] Looking up symbol " << mangledSymbName << " in "
@@ -279,13 +283,12 @@ ApproxLayer::addApproximateVersion(std::string functionName,
     // no problem, we need to compile the symbol
     consumeError(std::move(Err));
     // not yet compiled, add a MU to materialize when looked up
-    if (auto Err = approxJD.define(std::make_unique<ApproxMaterializationUnit>(
-            *this, std::make_pair(functionName, configuration)))) {
+    if (auto Err = approxJD.define(
+            std::make_unique<ApproxMaterializationUnit>(
+                *this, std::make_pair(functionName, configuration)),
+            RT)) {
       return Err;
     }
-
-    // add combination to the map of used combinations for this function
-    exitOnErr(resources.addCombinationToMap(combination));
 
     // trigger lookup again to force materialization of the symbol
     exitOnErr(this->lookup(approxJD, mangledSymbName,
@@ -519,17 +522,20 @@ Error ApproxLayer::updateApproximations() {
                << Function << " with combination "
                << EvaluationSystem::getCombinationFromConfiguration(config)
                << '\n');
-    if (auto Err = this->addApproximateVersion(Function, config))
-      return Err;
-
     // if we are at optimal combination for this function, remove the other
-    // configurations
+    // configurations. We do this before adding the approximate version because
+    // we will need to recompile the symbol after deleting the tempRT
     if (evaluationSystem.hasFoundOptimalConfiguration(Function)) {
-      if (auto Err = removeAllCombinationsButOne(
-              Function,
-              EvaluationSystem::getCombinationFromConfiguration(config)))
+      LLVM_DEBUG(
+          dbgs() << "[RAAS] Removing all combinations but "
+                 << EvaluationSystem::getCombinationFromConfiguration(config)
+                 << " from function " << Function << '\n');
+      if (auto Err = removeUnusedConfigurationSymbols(Function))
         return Err;
     }
+
+    if (auto Err = this->addApproximateVersion(Function, config))
+      return Err;
   }
   return Error::success();
 }
@@ -580,11 +586,7 @@ ApproxLayer::getFunctionResources(const std::string FunctionName) {
 }
 
 llvm::Error
-ApproxLayer::removeAllCombinationsButOne(std::string functionName,
-                                         std::string combinationToKeep) {
-  LLVM_DEBUG(dbgs() << "[RAAS] Removing all combinations but " +
-                           combinationToKeep + " for function "
-                    << functionName << '\n');
+ApproxLayer::removeUnusedConfigurationSymbols(std::string functionName) {
   auto resources = getFunctionResources(functionName);
   if (auto Err = resources.takeError()) {
     return Err;
@@ -593,19 +595,17 @@ ApproxLayer::removeAllCombinationsButOne(std::string functionName,
   auto &perDyLibR = getPerDylibResources(resources->getDylib());
   MangleAndInterner Mangle(getExecutionSession(), DL);
 
-  auto combinationSet = resources->getUsedCombinations();
-  for (auto &el : combinationSet) {
-    if (el == combinationToKeep)
-      continue;
-    // remove from the map
-    if (auto Err = resources->removeCombinationFromMap(el))
-      return Err;
+  auto RT = resources->getRT();
+  if (RT == nullptr)
+    return make_error<StringError>("Missing resource tracker. Are you sure we "
+                                   "have dangling symbols for this function?",
+                                   inconvertibleErrorCode());
 
-    // remove from the dylib
-    if (auto Err =
-            perDyLibR.getApproxDylib().remove({Mangle(functionName + el)}))
-      return Err;
-  }
+  // remove the temp resource tracker
+  if (auto Err = RT->remove())
+    return Err;
+
+  exitOnErr(resources->removeRT());
   return Error::success();
 }
 

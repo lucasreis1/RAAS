@@ -231,9 +231,9 @@ ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
 
   (*EPCIU)->createLazyCallThroughManager(
       *ES, ExecutorAddr::fromPtr(&handleLazyCallThroughError));
-
   if (auto Err = setUpInProcessLCTMReentryViaEPCIU(**EPCIU)) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return std::move(Err);
   }
 
@@ -241,22 +241,25 @@ ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
       ES->getExecutorProcessControl().getTargetTriple());
 
   auto DL = JTMB.getDefaultDataLayoutForTarget();
-
   if (!DL) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return DL.takeError();
   }
 
   auto evalModule = loadModule(evalModuleFile);
   if (!evalModule) {
     ExitOnErr(ES->endSession());
-    return evalModule.takeError();
+    ExitOnErr((*EPCIU)->cleanup());
+    consumeError(evalModule.takeError());
+    return make_error<StringError>("Unable to find evaluation module!", inconvertibleErrorCode());
   }
 
   auto demangler = CustomDemangler::Create(evalModule->getModuleUnlocked());
 
   if (!demangler) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return demangler.takeError();
   }
 
@@ -419,7 +422,7 @@ bool ApproxJIT::approxReevaluation() {
 
   FILE *fp = fopen("/tmp/memory.txt", "a");
   if (fp) {
-    fprintf(fp,"%ld\n", currMem);
+    fprintf(fp, "%ld\n", currMem);
     fclose(fp);
   }
 
