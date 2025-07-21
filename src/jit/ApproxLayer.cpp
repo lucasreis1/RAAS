@@ -530,8 +530,15 @@ Error ApproxLayer::updateApproximations() {
           dbgs() << "[RAAS] Removing all combinations but "
                  << EvaluationSystem::getCombinationFromConfiguration(config)
                  << " from function " << Function << '\n');
-      if (auto Err = removeUnusedConfigurationSymbols(Function))
-        return Err;
+      if (auto Err = removeUnusedConfigurationSymbols(Function)) {
+        // for now, we ignore such errors. But inform them if running in debug
+        // mode
+        LLVM_DEBUG(
+            dbgs() << "[RAAS] Unable to remove combinations for function "
+                   << Function << ". We may be in training-mode ("
+                   << llvm::toString(std::move(Err)) << ")\n";);
+        consumeError(std::move(Err));
+      }
     }
 
     if (auto Err = this->addApproximateVersion(Function, config))
@@ -602,9 +609,6 @@ ApproxLayer::removeUnusedConfigurationSymbols(std::string functionName) {
                                    inconvertibleErrorCode());
 
   // remove the temp resource tracker
-  if (auto Err = RT->remove())
-    return Err;
-
   exitOnErr(resources->removeRT());
   return Error::success();
 }
