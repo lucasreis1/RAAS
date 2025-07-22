@@ -60,6 +60,21 @@ public:
   // update all approximations based on evaluator input
   Error updateApproximations();
 
+  void killAllDylibs() {
+    errs() << "Killing all dylibs\n";
+    static ExitOnError exitOnErr;
+    std::set<JITDylib *> toRemove;
+    for (auto & II : FunctionNameToResourcesMap)  {
+      auto &Dylib = II.second.getDylib();
+      auto &approxDylib = getPerDylibResources(Dylib).getApproxDylib();
+      toRemove.insert(&Dylib);
+      toRemove.insert(&approxDylib);
+    }
+
+    for (auto &Dylib : toRemove) 
+      exitOnErr(Dylib->clear());
+  }
+
 private:
   struct PerFunctionResources {
   public:

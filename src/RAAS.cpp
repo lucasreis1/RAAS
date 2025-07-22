@@ -7,6 +7,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include <unistd.h>
 
 using namespace llvm;
 using namespace llvm::orc;
@@ -195,6 +196,10 @@ int main(int argc, char *argv[]) {
 
   // run the main function
   J->runAsMain(ExecutorAddr(mainSymb.getAddress()), InputArgv);
+
+  J->killAllDylibs();
+  errs() << "All dylibs killed!\n";
+  sleep(120);
 
   // print opportunities after evaluation ranked by their score
   if (clPrintRankedOpportunities)

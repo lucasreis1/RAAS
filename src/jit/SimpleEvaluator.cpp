@@ -160,6 +160,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           //      than the one already ideal (2% margin of error)
           // 4 - IF we are monitoring memory leaks, memory usage changed less
           // than NUMBER_OF_LOOPS - 1 times
+#ifndef MEMORY
           if (lastCheckedOpportunity->speedup >
                   lastCheckedOpportunity->idealConfig.speedup and
               lastError <= errorLimit and not isNan(lastError) and
@@ -170,12 +171,15 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
                    lastCheckedOpportunity->memoryUsageChanges <
                        LOOPS_PER_CONFIG - 1 or
                not monitorsMemoryConsumption())) {
+#endif
             // update the optimal configuration
             lastCheckedOpportunity->idealConfig = {
                 lastCheckedOpportunity->speedup,
                 lastCheckedOpportunity->parameter,
                 lastCheckedOpportunity->iterationTime};
+#ifndef MEMORY
           }
+#endif
 
           if (monitorsMemoryConsumption() and
               lastCheckedOpportunity->memoryUsageChanges >=
@@ -196,6 +200,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           // - approximating via GEMMs
           // - monitoring memory usage and achieving stable memory
           // and not at last parameter, keep increasing paramter
+#ifndef MEMORY
           if ((lastCheckedOpportunity->speedup >= 1. or
                lastCheckedOpportunity->AT == approxTechnique::GAP) and
               lastCheckedOpportunity->parameter !=
@@ -204,6 +209,9 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
                    lastCheckedOpportunity->memoryUsageChanges <
                        LOOPS_PER_CONFIG - 1 or
                not monitorsMemoryConsumption())) {
+#else
+          if ( lastCheckedOpportunity->parameter != lastCheckedOpportunity->maxParameter ) {
+#endif
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
             lastCheckedOpportunity->iterationTime = 0.;

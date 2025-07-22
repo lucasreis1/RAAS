@@ -171,6 +171,10 @@ public:
    * that introduce memory leaks
    */
   void setMemoryAware() {evaluator.setMonitorMemoryConsumption(true); }
+
+  void killAllDylibs() {
+    APLayer.killAllDylibs();
+  }
 };
 
 void enableDebug();
