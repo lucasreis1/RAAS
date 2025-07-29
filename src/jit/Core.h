@@ -3,6 +3,7 @@
 
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/Function.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorOr.h"
 
 #define IPO_PIPELINE                                                           \
@@ -47,7 +48,7 @@
 //  "globaldce,constmerge,cg-profile,rel-lookup-table-converter,function("       \
 //  "annotation-remarks),verify"
 enum approxTechnique { FAP, LPAR, LPERF, GAP };
-enum TIER {low, medium, high};
+enum TIER { low, medium, high };
 
 // translate enum to string with technique name
 static const std::map<approxTechnique, std::string> techniqueNameMap = {
@@ -69,7 +70,7 @@ class EvaluationSystem;
 class ForbiddenApproximations;
 
 /**
- * this class receives the current application and error status and
+ * This class receives the current application and error status and
  * approximation opportunities and outputs the desired combination to
  * approximate. This is an abstract class meant to be extended with desired
  * configuration selection logic.
@@ -79,23 +80,31 @@ class ConfigurationEvaluation {
 
 public:
   ConfigurationEvaluation(double elim) : errorLimit(elim) {}
-  // create the data structure used for the heuristic to compute the optimal
-  // approximation per technique
+  /* create the data structure used for the heuristic to compute the optimal
+   * approximation per technique
+   */
   virtual void buildApproximationStructures(StringRef functionName,
                                             configurationPerTechniqueMap M) = 0;
 
-  // given a function, return the configuration suggested by the heuristic
+  /* given a function, return the configuration suggested by the heuristic */
   virtual configurationPerTechniqueMap
   getSuggestedConfiguration(StringRef FunctionName) = 0;
 
-  // declare the destructor as virtual for inheritance purposes
+  /* declare the destructor as virtual for inheritance purposes */
   virtual ~ConfigurationEvaluation() {}
 
-  // optional method used to inform if we are already at optimal configuration
+  /* optional method used to inform if we are already at optimal configuration
+   */
   bool achievedConvergence() { return foundOptimal; }
 
-  // returns true if this function received an update in approximation on the
-  // last evaluation iteration
+  /* Check if the current function has achieved convergence in each possible
+   * configuration
+   */
+  virtual bool hasFoundOptimalConfiguration(std::string functionName) = 0;
+
+  /* returns true if this function received an update in approximation on the
+   * last evaluation iteration
+   */
   virtual bool wasUpdatedInLastEvaluation(std::string functionName) = 0;
 
   virtual void unmarkAsUpdated(std::string functionName) = 0;
@@ -116,46 +125,86 @@ public:
   virtual void restoreStateFromJSON(StringRef functionName,
                                     std::string JSONFile) = 0;
 
+  void setMonitorMemoryConsumption(bool shouldMonitor) {
+    monitorMemoryConsumption = shouldMonitor;
+  }
+
+  bool monitorsMemoryConsumption() { return monitorMemoryConsumption; }
+
   class approximationQuality {
-    double preciseTime = 0.0;
+    double RoIpreciseTime = 0.0;
+    double IterationPreciseTime = 0.0;
     // first -> second to last loop
     // second -> last loop
-    std::pair<double, double> speedups;
+    std::pair<double, double> RoIspeedups;
     std::pair<double, double> errors;
+    std::pair<double, double> iterationTimes;
+    std::optional<std::pair<long, long>> memoryConsumption;
 
   public:
     approximationQuality() {
       errors = {.0, .0};
-      speedups = {1.0, 1.0};
+      RoIspeedups = {1.0, 1.0};
+      iterationTimes = {0.0, 0.0};
     }
 
-    void updateValues(double error, double time) {
+    void updateRoIValues(double error, double time) {
       errors = {errors.second, error};
-      speedups = {speedups.second, preciseTime / time};
+      RoIspeedups = {RoIspeedups.second, RoIpreciseTime / time};
     }
 
-    double getAvgSpeedup() { return (speedups.second + speedups.first) / 2; }
+    void updateIterationTime(double time) {
+      iterationTimes = {iterationTimes.second, time};
+    }
 
-    // update precise time in increments
-    void incrementPreciseTime(double time) { preciseTime += time; }
+    void updateMemoryConsumption(long memory) { 
+      if (memoryConsumption.has_value())
+        memoryConsumption = {memoryConsumption.value().second, memory};
+      else
+       memoryConsumption = {0L, memory};
+    }
+
+    llvm::Expected<std::pair<long, long>> getMemoryConsumption() {
+      if (memoryConsumption.has_value())
+        return memoryConsumption.value();
+
+      return make_error<StringError>(
+          "There's no memory consumption. Maybe re-run with --memory-conscious",
+          inconvertibleErrorCode());
+    }
+
+    const double getAvgSpeedup() {
+      return (RoIspeedups.second + RoIspeedups.first) / 2;
+    }
+
+    /* update precise time in increments (both iteration and RoI) */
+    void incrementRoIPreciseTime(double time) { RoIpreciseTime += time; }
+    void incrementIterationPreciseTime(double time) {
+      IterationPreciseTime += time;
+    }
 
     std::pair<double, double> getErrors() { return errors; }
 
-    std::pair<double, double> getSpeedups() { return speedups; }
+    std::pair<double, double> getRoISpeedups() { return RoIspeedups; }
+
+    std::pair<double, double> getIterationTimes() { return iterationTimes; }
+    double getIterationPreciseTime() { return IterationPreciseTime; }
   } APQ;
 
   void setForbiddenApproxList(std::unique_ptr<ForbiddenApproximations> fap) {
     forbiddenApproxList = std::move(fap);
   }
-  //  informs if we are already at optimal configuration
+  /* informs if we are already at optimal configuration */
   bool foundOptimal = false;
 
 protected:
   std::unique_ptr<ForbiddenApproximations> forbiddenApproxList = nullptr;
-  // evaluates the score for each approximation opportunity for each function
-  // and returns the choosen configuration set
+  /* evaluates the score for each approximation opportunity for each function
+   * and returns the choosen configuration set
+   */
   virtual void updateSuggestedConfigurations() = 0;
   const double errorLimit;
+  bool monitorMemoryConsumption;
 };
 
 /**
@@ -189,9 +238,12 @@ public:
   static std::string
   getCombinationFromConfiguration(configurationPerTechniqueMap configuration);
 
-  void incrementPreciseTime(double precTime);
+  void incrementRoIPreciseTime(double precTime);
+  void incrementIterationPreciseTime(double precTime);
 
-  void updateQualityValues(double error, double time);
+  void updateQualityValues(double error, double time, double iterationTime);
+
+  void updateMemoryConsumption(long memory);
 
   double getLastSpeedup();
   double getLastError();
@@ -208,6 +260,18 @@ public:
    * by score
    */
   void printRankedOpportunities(bool csv_format = false);
+
+  /*
+   * Asks the evaluator if the function in question has found optimal
+   * configuration, i.e. it won't be approximated anymore by the evaluator. The
+   * JIT can use this information to discard non-used symbols and preserve
+   * memory.
+   */
+  bool hasFoundOptimalConfiguration(std::string functionName);
+
+  bool monitorsMemoryConsumption();
+
+  void setMonitorMemoryConsumption(bool shouldMonitor);
 
 private:
   std::unique_ptr<ConfigurationEvaluation> evaluator;

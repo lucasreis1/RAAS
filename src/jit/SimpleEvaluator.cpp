@@ -2,6 +2,7 @@
 #include "SimpleEvaluator.h"
 #include "misc/utils.h"
 #include "llvm/Support/Debug.h"
+#include "llvm/Support/Error.h"
 #include "llvm/Support/JSON.h"
 #include <fstream>
 #include <iomanip>
@@ -12,6 +13,8 @@
 #define LOOPS_PER_CONFIG 3
 
 #define DEBUG_TYPE "raas"
+
+static llvm::ExitOnError ExitOnErr;
 
 // empty constructor, we start building the attributes only when we need them
 SimpleEvaluator::SimpleEvaluator(double elim, TIER aggressiveness)
@@ -63,6 +66,8 @@ void SimpleEvaluator::buildApproximationStructures(
 
 // the desired one
 void SimpleEvaluator::updateSuggestedConfigurations() {
+  // before starting, store the max RoI time to be the precise accumulated time
+  maxRequiredIterationTime = APQ.getIterationPreciseTime();
   // the number of loops we will use to evaluate each configuration
   int evaluationLimit = opportunitiesWrapper.size() * LOOPS_PER_CONFIG;
   if (!foundOptimal) {
@@ -77,14 +82,15 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
       }
     }
 
-    // evaluate the last configuration tested from iterations [1,
-    // approxSize()]
+    // Evaluate the last configuration tested from iterations
+    // [1, approxSize()]
     if (iterationCount and iterationCount <= evaluationLimit) {
       auto &lastModifiedOp =
           opportunitiesWrapper[(iterationCount - 1) / LOOPS_PER_CONFIG];
       if (lastModifiedOp.foundOptimal == false) {
         lastModifiedOp.score += getScore() / LOOPS_PER_CONFIG;
-        lastModifiedOp.speedup += APQ.getSpeedups().second / LOOPS_PER_CONFIG;
+        lastModifiedOp.speedup +=
+            APQ.getRoISpeedups().second / LOOPS_PER_CONFIG;
         if (iterationCount % LOOPS_PER_CONFIG == 0) {
           lastModifiedOp.parameter = 0;
           lastModifiedOp.parent->updatedInLastEvaluation = true;
@@ -94,7 +100,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           if (lastError > errorLimit or isNan(lastError))
             lastModifiedOp.foundOptimal = true;
         }
-      } else
+      } else // skip to the next valid configuration
         iterationCount += LOOPS_PER_CONFIG - 1;
     }
     // start our combination heuristic evaluation
@@ -115,52 +121,106 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
         // if we are evaluating this opportunity for the first time, our target
         // is at least the same speedup as before this opportunity showed up
         if (heuristicalCount == 0 and lastCheckedOpportunity->parameter == 0) {
-          lastCheckedOpportunity->idealConfig.first = minRequiredSpeedup;
+          lastCheckedOpportunity->idealConfig.speedup = minRequiredSpeedup;
+          lastCheckedOpportunity->idealConfig.iterationTime =
+              maxRequiredIterationTime;
           lastCheckedOpportunity->speedup = .0;
+          lastCheckedOpportunity->iterationTime = 0.;
           lastCheckedOpportunity->parameter = 1;
           lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
         }
         // we want to thest each parameter for n loops
         else if (heuristicalCount > 0 and
                  heuristicalCount <= LOOPS_PER_CONFIG) {
-          lastCheckedOpportunity->speedup += APQ.getSpeedups().second;
+          lastCheckedOpportunity->speedup += APQ.getRoISpeedups().second;
+          lastCheckedOpportunity->iterationTime +=
+              APQ.getIterationTimes().second;
+          // monitor memory usage for this opportunity only after the first
+          // loop, as we increase memory usage by recompiling the symbol
+          if (monitorsMemoryConsumption() and heuristicalCount > 1) {
+            // first -> second to last, second -> last
+            auto memoryPair = ExitOnErr(APQ.getMemoryConsumption());
+            // memory changed between this and the second-to-last loop. This may
+            // indicate leaks
+            if (memoryPair.second > memoryPair.first)
+              lastCheckedOpportunity->memoryUsageChanges++;
+          }
         }
-        if (heuristicalCount >= LOOPS_PER_CONFIG) {
+        if (heuristicalCount == LOOPS_PER_CONFIG) {
           // reset our count and speedup
           heuristicalCount = -1;
           lastCheckedOpportunity->speedup /= LOOPS_PER_CONFIG;
-
+          lastCheckedOpportunity->iterationTime /= LOOPS_PER_CONFIG;
           auto lastError = APQ.getErrors().second;
-          // if the current speedup is bigger than our ideal one, change the
-          // propsed optimal configuration
+          // To change the ideal configuration for this opportunity, it must:
+          // 1 - achieve RoI speedups bigger than the ones that are already
+          //     ideal
+          // 2 - have an error lower than our maximum threshold
+          // 3 - have a total iteration time (entire application) lower
+          //      than the one already ideal (2% margin of error)
+          // 4 - IF we are monitoring memory leaks, memory usage changed less
+          // than NUMBER_OF_LOOPS - 1 times
           if (lastCheckedOpportunity->speedup >
-                  lastCheckedOpportunity->idealConfig.first and
-              lastError <= errorLimit and not isNan(lastError)) {
+                  lastCheckedOpportunity->idealConfig.speedup and
+              lastError <= errorLimit and not isNan(lastError) and
+              lastCheckedOpportunity->iterationTime <
+                  lastCheckedOpportunity->idealConfig.iterationTime * 1.02 and
+              // memory leaks monitoring
+              (monitorsMemoryConsumption() and
+                   lastCheckedOpportunity->memoryUsageChanges <
+                       LOOPS_PER_CONFIG - 1 or
+               not monitorsMemoryConsumption())) {
             // update the optimal configuration
             lastCheckedOpportunity->idealConfig = {
                 lastCheckedOpportunity->speedup,
-                lastCheckedOpportunity->parameter};
+                lastCheckedOpportunity->parameter,
+                lastCheckedOpportunity->iterationTime};
           }
-          // if we are still not at maximum parameter and still achieving
-          // speedups (or are approximating via GEMMs), keep increasing the
-          // parameter
+
+          if (monitorsMemoryConsumption() and
+              lastCheckedOpportunity->memoryUsageChanges >=
+                  LOOPS_PER_CONFIG - 1) {
+            LLVM_DEBUG(static ExitOnError exitOnErr;
+                       dbgs() << "[RAAS] discarding config "
+                              << lastCheckedOpportunity->parent->functionName
+                              << "|" << lastCheckedOpportunity->index + 1
+                              << " for detected memory leak ("
+                              << lastCheckedOpportunity->memoryUsageChanges
+                              << " changes | ends at "
+                              << exitOnErr(APQ.getMemoryConsumption()).second
+                              << " KB)\n";);
+            lastCheckedOpportunity->idealConfig.parameter = 0;
+          }
+          // if we are either:
+          // - still achieving speedups
+          // - approximating via GEMMs
+          // - monitoring memory usage and achieving stable memory
+          // and not at last parameter, keep increasing paramter
           if ((lastCheckedOpportunity->speedup >= 1. or
                lastCheckedOpportunity->AT == approxTechnique::GAP) and
               lastCheckedOpportunity->parameter !=
-                  lastCheckedOpportunity->maxParameter) {
+                  lastCheckedOpportunity->maxParameter and
+              (monitorsMemoryConsumption() and
+                   lastCheckedOpportunity->memoryUsageChanges <
+                       LOOPS_PER_CONFIG - 1 or
+               not monitorsMemoryConsumption())) {
             lastCheckedOpportunity->parameter++;
             lastCheckedOpportunity->speedup = 0.;
+            lastCheckedOpportunity->iterationTime = 0.;
+            lastCheckedOpportunity->memoryUsageChanges = 0;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
           } else { // else, set the opportunity as already checked and set its
                    // optimal parameter
             lastCheckedOpportunity->parameter =
-                lastCheckedOpportunity->idealConfig.second;
+                lastCheckedOpportunity->idealConfig.parameter;
             lastCheckedOpportunity->foundOptimal = true;
             lastCheckedOpportunity->parent->updatedInLastEvaluation = true;
 
             // the new minRequiredSpeedup is the one attained by the best rate
             // of this config
-            minRequiredSpeedup = lastCheckedOpportunity->idealConfig.first;
+            minRequiredSpeedup = lastCheckedOpportunity->idealConfig.speedup;
+            maxRequiredIterationTime =
+                lastCheckedOpportunity->idealConfig.iterationTime;
             // reset the opportunity to null so we can search new ones
             lastCheckedOpportunity = nullptr;
           }
@@ -172,12 +232,11 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
       }
     }
   }
-  LLVM_DEBUG(dbgs() << "[RAAS] Opportunities recomputed for iteration " << iterationCount << "\n");
-  // stop counting iterations after we did preprocessing
-  // if (iterationCount <= evaluationLimit)
+  LLVM_DEBUG(dbgs() << "[RAAS] Opportunities recomputed for iteration "
+                    << iterationCount << "\n");
   iterationCount++;
 
-  for (auto opportunity : opportunitiesWrapper) 
+  for (auto opportunity : opportunitiesWrapper)
     fprintf(stdout, "%d %d %d %lf |", opportunity.AT, opportunity.parameter,
             opportunity.foundOptimal, opportunity.score);
   fprintf(stdout, "\n");
@@ -222,7 +281,7 @@ void SimpleEvaluator::unmarkAsUpdated(std::string functionName) {
 
 double SimpleEvaluator::getScore() {
   auto error = APQ.getErrors().second;
-  auto speedup = APQ.getSpeedups().second;
+  auto speedup = APQ.getRoISpeedups().second;
 
   switch (scoringAggressiveness) {
   case low:
@@ -388,8 +447,8 @@ std::string SimpleEvaluator::getRankedConfigurations(bool csv_format) {
     ss << "score,function,technique,parameter,speedup" << std::endl;
     for (auto &aa : opportunitiesWrapper)
       ss << aa.score << "," << aa.parent->functionName << ","
-         << techniqueNameMap.at(aa.AT) << "," << aa.idealConfig.second << ","
-         << aa.idealConfig.first << std::endl;
+         << techniqueNameMap.at(aa.AT) << "," << aa.idealConfig.parameter << ","
+         << aa.idealConfig.speedup << std::endl;
 
     return ss.str();
   }
@@ -433,8 +492,8 @@ std::string SimpleEvaluator::getRankedConfigurations(bool csv_format) {
     ss << " | " << formatText(12, fill, aa.score) << " | ";
     ss << formatText(maxFnSize, fill, aa.parent->functionName) << " | ";
     ss << formatText(25, fill, techniqueNameMap.at(aa.AT)) << " | ";
-    ss << formatText(9, fill, aa.idealConfig.second) << " | ";
-    ss << formatText(9, fill, aa.idealConfig.first) << " | ";
+    ss << formatText(9, fill, aa.idealConfig.parameter) << " | ";
+    ss << formatText(9, fill, aa.idealConfig.speedup) << " | ";
     ss << std::endl;
   }
 
@@ -447,4 +506,14 @@ std::string SimpleEvaluator::getRankedConfigurations(bool csv_format) {
   ss << std::endl;
 
   return ss.str();
+}
+
+bool SimpleEvaluator::hasFoundOptimalConfiguration(std::string functionName) {
+  auto &oppPerFn = oppPerFunctionMap.at(functionName).opportunitiesPerTechnique;
+  for (auto &II : oppPerFn) {
+    for (auto &el : II.second)
+      if (not el.foundOptimal)
+        return false;
+  }
+  return true;
 }

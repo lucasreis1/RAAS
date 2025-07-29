@@ -122,6 +122,9 @@ private:
   };
 
   static LoopInfo getLoopInfo(const Function &F);
+  // check if function/basicblock has a call to a dealloc function (free/delete)
+  static bool hasMemoryDealloc(const Function &F, DenseMap<const BasicBlock *, bool> &visited);
+  static bool hasMemoryDealloc(const BasicBlock &BI, DenseMap<const BasicBlock *, bool> &visited);
 };
 
 /**

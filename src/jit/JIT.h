@@ -7,6 +7,7 @@
 #include "llvm/ExecutionEngine/Orc/IRTransformLayer.h"
 #include "llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h"
 #include "llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h"
+#include "llvm/ExecutionEngine/Orc/Shared/ExecutorSymbolDef.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/SourceMgr.h"
@@ -58,6 +59,8 @@ private:
 
   std::string programName;
 
+  double fullIterationTime;
+
   // DSO handles for initalizers
   DenseMap<orc::JITDylib *, orc::ExecutorAddr> DSOHandles;
 
@@ -84,6 +87,19 @@ private:
 
   int getLoopNumber() { return this->numberOfLoops - SKIPPABLE_LOOPS + 1; }
 
+  // symbols for store/load so that we don't spend time doing lookups after
+  // every iteration
+  struct evaluationSymbols {
+    const ExecutorSymbolDef storeSymb;
+    const ExecutorSymbolDef compareSymb;
+
+    evaluationSymbols(ExecutorSymbolDef storeSymb,
+                      ExecutorSymbolDef compareSymb)
+        : storeSymb(storeSymb), compareSymb(compareSymb) {}
+  };
+
+  std::optional<evaluationSymbols> evalSymbols;
+
 public:
   ApproxJIT(std::unique_ptr<ExecutionSession> ES,
             std::unique_ptr<EPCIndirectionUtils> EPCIU,
@@ -96,8 +112,8 @@ public:
 
   static Expected<std::unique_ptr<ApproxJIT>>
   Create(std::string evalModuleFile, TIER aggressiveness,
-         double errorLimit = 0.3, std::string programName = "",
-         bool trainingMode = false, bool ignoreApproximations = false);
+         double errorLimit = 0.3, bool ignoreApproximations = false,
+         std::string programName = "");
 
   Expected<ExecutorSymbolDef>
   lookup(StringRef Name, JITDylibLookupFlags Flags =
@@ -149,6 +165,12 @@ public:
   void printRankedOpportunities(bool csv_format = false) {
     evaluator.printRankedOpportunities(csv_format);
   }
+
+  /*
+   * Make the evaluation system memory aware, so that it avoids approximations
+   * that introduce memory leaks
+   */
+  void setMemoryAware() {evaluator.setMonitorMemoryConsumption(true); }
 };
 
 void enableDebug();

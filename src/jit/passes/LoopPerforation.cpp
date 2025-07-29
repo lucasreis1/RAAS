@@ -15,6 +15,8 @@
 
 using namespace llvm;
 
+#define DEBUG_TYPE "raas"
+
 LoopPerforation::PerforableLoop::PerforableLoop(Loop *l, LoopInfo &li,
                                                 Function *parentF,
                                                 unsigned perfRate)
@@ -36,11 +38,17 @@ bool LoopPerforation::PerforableLoop::isPerforable(Loop *L) {
   // the body starts on the first BB after the header that is not a latch or
   // exit block
   bool foundBody = false;
+  DenseMap<const BasicBlock *, bool> visited;
   for (auto BI : termInst->successors()) {
     if (!L->contains(BI) or L->isLoopLatch(BI))
       continue;
     foundBody = true;
-    break;
+    // not perforable if there's any call to free/delete in a body block
+    if (hasMemoryDealloc(*BI, visited)) {
+      LLVM_DEBUG(dbgs() << "[RAAS] Found BB with memory dealloc in Loop at function "
+                        << BI->getParent()->getName() << '\n';);
+      return false;
+    }
   }
 
   // if we still haven't found the body, that means it is part of the
@@ -116,8 +124,8 @@ bool LoopPerforation::PerforableLoop::perforateLoop() {
   return true;
 }
 
-bool LoopPerforation::tryToPerforateLoop(Function *F, Loop *L,
-                                                LoopInfo &LI, unsigned param) {
+bool LoopPerforation::tryToPerforateLoop(Function *F, Loop *L, LoopInfo &LI,
+                                         unsigned param) {
   if (param == 0)
     return false;
   else {
@@ -216,4 +224,55 @@ unsigned LoopPerforation::searchApproximableCalls(const Function &F) {
     }
   }
   return perforableCount;
+}
+
+bool LoopPerforation::hasMemoryDealloc(
+    const BasicBlock &BI, DenseMap<const BasicBlock *, bool> &visited) {
+  if (visited.find(&BI) != visited.end())
+    return visited.lookup(&BI);
+  bool hasDealloc = false;
+  auto parentModule = BI.getParent()->getParent();
+  for (auto &II : BI) {
+    if (auto *Call = dyn_cast<CallInst>(&II)) {
+      auto calledFn = Call->getCalledFunction();
+      if (!calledFn)
+        continue;
+      auto calledFnName = calledFn->getName().str();
+      if (calledFnName == "free") {
+        hasDealloc = true;
+        break;
+      }
+      // one of many delete implems
+      if (calledFnName.substr(0, 4) == "_Zdl") {
+        hasDealloc = true;
+        break;
+      }
+
+      if (auto Fn = parentModule->getFunction(calledFnName)) {
+        if (Fn->isDeclaration())
+          continue;
+        if (hasMemoryDealloc(*Fn, visited)) {
+          hasDealloc = true;
+          break;
+        }
+      }
+    }
+  }
+
+  visited.insert(std::make_pair(&BI, hasDealloc));
+  return hasDealloc;
+}
+
+bool LoopPerforation::hasMemoryDealloc(
+    const Function &Fn, DenseMap<const BasicBlock *, bool> &visited) {
+  for (auto &BB : Fn) {
+    if (visited.find(&BB) != visited.end())
+      return visited.lookup(&BB);
+
+    bool hasDealloc = hasMemoryDealloc(BB, visited);
+    visited.insert(std::make_pair(&BB, hasDealloc));
+    if (hasDealloc)
+      return true;
+  }
+  return false;
 }

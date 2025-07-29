@@ -84,12 +84,38 @@ private:
       return Fn;
     }
 
+    llvm::Error addRT(ResourceTrackerSP RSP) {
+      if (RT)
+        return make_error<StringError>(
+            "Function already has temp ResourceTracker associated with it!",
+            inconvertibleErrorCode());
+
+      RT = RSP;
+      return Error::success();
+    }
+
+    llvm::Error removeRT() {
+      if (RT == nullptr)
+        return make_error<StringError>(
+            "Function has no ResourceTracker associated with it!",
+            inconvertibleErrorCode());
+      RT = nullptr;
+
+      return Error::success();
+    }
+
+    const ResourceTrackerSP getRT() { return RT; }
+
     const JITSymbolFlags getFlags() { return SymbolFlags; }
 
   private:
     JITDylib &Dylib;
     ThreadSafeModule TSM;
     JITSymbolFlags SymbolFlags;
+    // each function has a resource tracker associated with it's approximate
+    // symbols. This is intended do store symbols that will be discarded later
+    // on
+    ResourceTrackerSP RT = nullptr;
   };
 
   JITTargetAddress jitAddress;
@@ -105,6 +131,12 @@ private:
   Expected<ThreadSafeModule>
   approximateModule(ThreadSafeModule TSM, StringRef functionName,
                     configurationPerTechniqueMap configuration);
+
+  // Remove the resources associated to all symbols not belonging to this
+  // specific combination from the dylib. In practice, we are clearing the dylib
+  // and letting RAAS recompile the correct symbol as we don't have a sensible
+  // way to move a single symbol from one RT to another
+  llvm::Error removeUnusedConfigurationSymbols(std::string functionName);
   // targeting a similar approach from CompileOnDemand
   StringMap<PerFunctionResources> FunctionNameToResourcesMap;
   // shamelessly stolen from CODLayer
@@ -134,8 +166,9 @@ private:
   PerDylibResourcesMap DylibResources;
   LazyCallThroughManager &LCTMgr;
 
-  // set to true if we want to run without applying transformations
-  // use only for overhead measure
+  /* set to true if we want to run without applying transformations.
+   * Use only for overhead measure
+   */
   bool ignoreApproximations;
 
   const DataLayout &DL;

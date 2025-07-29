@@ -19,6 +19,7 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include <sys/time.h>
 
 void initializeTarget() {
   llvm::InitializeNativeTarget();
@@ -159,7 +160,6 @@ ApproxJIT::ApproxJIT(std::unique_ptr<ExecutionSession> ES,
   MainJD.addGenerator(
       cantFail(DynamicLibrarySearchGenerator::GetForCurrentProcess(
           DL.getGlobalPrefix())));
-  // MainJD.addToLinkOrder(SupportJD, JITDylibLookupFlags::MatchAllSymbols);
 
   // build pass list
   passlist::buildPasses();
@@ -183,6 +183,11 @@ ApproxJIT::ApproxJIT(std::unique_ptr<ExecutionSession> ES,
   evalModule.getModuleUnlocked()->setDataLayout(getDataLayout());
   ExitOnErr(TransformLayer.add(MainJD.getDefaultResourceTracker(),
                                std::move(evalModule)));
+  // pre-load evaluation symbols for later use
+  auto storeOrigSymb =
+      ExitOnErr(this->lookup(demangler.getFunction("storeOriginal")));
+  auto compareSymb = ExitOnErr(this->lookup(demangler.getFunction("compare")));
+  evalSymbols.emplace(evaluationSymbols(storeOrigSymb, compareSymb));
 
 #ifdef DEBUG
   // plugin for GDB debugging
@@ -206,8 +211,9 @@ ApproxJIT::~ApproxJIT() {
 
 Expected<std::unique_ptr<ApproxJIT>>
 ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
-                  double errorLimit, std::string programName, bool trainingMode,
-                  bool ignoreApproximations) {
+                  double errorLimit, bool ignoreApproximations,
+                  std::string programName) {
+  auto trainingMode = programName != "";
   assert(not(trainingMode and ignoreApproximations) &&
          "Can't ignore approximations if in training mode");
   auto EPC = SelfExecutorProcessControl::Create(
@@ -225,9 +231,9 @@ ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
 
   (*EPCIU)->createLazyCallThroughManager(
       *ES, ExecutorAddr::fromPtr(&handleLazyCallThroughError));
-
   if (auto Err = setUpInProcessLCTMReentryViaEPCIU(**EPCIU)) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return std::move(Err);
   }
 
@@ -235,22 +241,25 @@ ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
       ES->getExecutorProcessControl().getTargetTriple());
 
   auto DL = JTMB.getDefaultDataLayoutForTarget();
-
   if (!DL) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return DL.takeError();
   }
 
   auto evalModule = loadModule(evalModuleFile);
   if (!evalModule) {
     ExitOnErr(ES->endSession());
-    return evalModule.takeError();
+    ExitOnErr((*EPCIU)->cleanup());
+    consumeError(evalModule.takeError());
+    return make_error<StringError>("Unable to find evaluation module!", inconvertibleErrorCode());
   }
 
   auto demangler = CustomDemangler::Create(evalModule->getModuleUnlocked());
 
   if (!demangler) {
     ExitOnErr(ES->endSession());
+    ExitOnErr((*EPCIU)->cleanup());
     return demangler.takeError();
   }
 
@@ -345,7 +354,6 @@ Expected<ExecutorSymbolDef> ApproxJIT::lookupOrLoadSymbol(StringRef Name,
     // Consume the error.
     consumeError(std::move(Err));
 
-
     LLVM_DEBUG(
         dbgs()
         << "[RAAS] Symbol " << Name
@@ -381,7 +389,7 @@ Expected<ExecutorSymbolDef> ApproxJIT::lookupOrLoadSymbol(StringRef Name,
 }
 
 // find iteration time from symbol present in application
-llvm::Expected<double> lookupIterationTime() {
+llvm::Expected<double> lookupRoITime() {
   auto SymOrErr = J->lookup("raas_dtime");
   if (auto Err = SymOrErr.takeError()) {
     consumeError(std::move(Err));
@@ -395,35 +403,53 @@ llvm::Expected<double> lookupIterationTime() {
   return *timePtr;
 }
 
+// get time of day in seconds
+double getCurrentToD() {
+  struct timeval t;
+  gettimeofday(&t, NULL);
+  return (double)t.tv_sec + (double)t.tv_usec * 1e-6;
+}
+
 bool ApproxJIT::approxReevaluation() {
-  auto time = ExitOnErr(lookupIterationTime());
+  // count iteration time outside RoI
+  fullIterationTime = getCurrentToD() - fullIterationTime;
+  auto time = ExitOnErr(lookupRoITime());
+  // update memory consumption for this iteration
+  if (evaluator.monitorsMemoryConsumption())
+    evaluator.updateMemoryConsumption(ExitOnErr(get_current_rss()));
+
+  auto currMem = ExitOnErr(get_current_rss());
+
+  FILE *fp = fopen("/tmp/memory.txt", "a");
+  if (fp) {
+    fprintf(fp, "%ld\n", currMem);
+    fclose(fp);
+  }
+
   // this is the first loop, we will use it only to store precise output
   // values. We do not want time measures from this loop
   // to avoid measuring a cold cache
   if (this->numberOfLoops == 0) {
-    using voidFnPtr = void (*)();
     // lookup storeOriginal fn from the evaluation file
-    auto storeOriginalMangled = demangler.getFunction("storeOriginal");
-    auto storeOrigSymb = ExitOnErr(this->lookup(storeOriginalMangled));
-    voidFnPtr storeOrigFn = storeOrigSymb.getAddress().toPtr<voidFnPtr>();
+    auto storeOrigSymb = evalSymbols->storeSymb;
+    auto storeOrigFn = storeOrigSymb.getAddress().toPtr<void (*)()>();
     storeOrigFn();
   }
   // use these loops exclusively to accumulate a precise time average
   else if (isOnBaseLoops()) {
-    evaluator.incrementPreciseTime(time / (BASE_ITERATIONS));
+    evaluator.incrementRoIPreciseTime(time / (double)BASE_ITERATIONS);
+    evaluator.incrementIterationPreciseTime(time / (double)BASE_ITERATIONS);
     fprintf(stdout, "thus ends base loop %d/%d with %lf time!\n",
             getLoopNumber(), BASE_ITERATIONS, time);
   } else if (isOnApproximableLoops()) { // those are the loops where we are
                                         // approximating
-    using doubleFnPtr = double (*)();
     // lookup compare fn from the evaluation file
-    auto compareMangled = demangler.getFunction("compare");
-    auto compareSymb = ExitOnErr(this->lookup(compareMangled));
+    auto compareSymb = evalSymbols->compareSymb;
     // find the JIT symbol that points to our error calculation function
-    doubleFnPtr compareFn = compareSymb.getAddress().toPtr<doubleFnPtr>();
+    auto compareFn = compareSymb.getAddress().toPtr<double (*)()>();
     auto err = compareFn();
     // store the difference between outputs
-    evaluator.updateQualityValues(err, time);
+    evaluator.updateQualityValues(err, time, fullIterationTime);
     fprintf(stdout,
             "thus ends iteration %d with %lf time (%lf speedup / %lf error)!\n",
             getLoopNumber(), time, evaluator.getLastSpeedup(),
@@ -434,6 +460,9 @@ bool ApproxJIT::approxReevaluation() {
     ExitOnErr(APLayer.updateApproximations());
   }
   this->numberOfLoops++;
+
+  // start counting a new iteration before returning context to application
+  fullIterationTime = getCurrentToD();
   return evaluator.getConfigEvaluator()->achievedConvergence();
 }
 
@@ -534,7 +563,7 @@ void ApproxJIT::setForbiddenApproxList(
 
 } // namespace orc
 } // namespace llvm
- 
+
 static LLVM_ATTRIBUTE_USED void linkComponents() {
   errs() << "Linking in runtime functions\n"
          << (void *)&llvm_orc_registerEHFrameSectionWrapper << '\n'
