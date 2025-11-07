@@ -3,7 +3,7 @@ set(NO_RTTI "-fno-rtti")
 add_definitions(${NO_RTTI})
 set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-add_library(Passes STATIC Passes.cpp LoopPerforation.cpp FunctionApprox.cpp GEMMApproximation.cpp ApproximationAnalysis.cpp)
+add_library(Passes STATIC Passes.cpp LoopPerforation.cpp FunctionApprox.cpp ApproximationAnalysis.cpp)
 
 add_library(instrumentFn SHARED InstrumentApprox.cpp)
 add_library(ApproxOpportunityList SHARED GetApproximableOpportunities.cpp)

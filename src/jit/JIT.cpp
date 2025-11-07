@@ -252,7 +252,8 @@ ApproxJIT::Create(std::string evalModuleFile, TIER aggressiveness,
     ExitOnErr(ES->endSession());
     ExitOnErr((*EPCIU)->cleanup());
     consumeError(evalModule.takeError());
-    return make_error<StringError>("Unable to find evaluation module!", inconvertibleErrorCode());
+    return make_error<StringError>("Unable to find evaluation module!",
+                                   inconvertibleErrorCode());
   }
 
   auto demangler = CustomDemangler::Create(evalModule->getModuleUnlocked());
@@ -417,14 +418,6 @@ bool ApproxJIT::approxReevaluation() {
   // update memory consumption for this iteration
   if (evaluator.monitorsMemoryConsumption())
     evaluator.updateMemoryConsumption(ExitOnErr(get_current_rss()));
-
-  auto currMem = ExitOnErr(get_current_rss());
-
-  FILE *fp = fopen("/tmp/memory.txt", "a");
-  if (fp) {
-    fprintf(fp, "%ld\n", currMem);
-    fclose(fp);
-  }
 
   // this is the first loop, we will use it only to store precise output
   // values. We do not want time measures from this loop

@@ -9,13 +9,17 @@ void buildPasses() {
     return;
   Passes.push_front(std::move(std::make_unique<FunctionApproximation>()));
   Passes.push_front(std::move(std::make_unique<LoopPerforation>()));
+#ifdef GEMM_APPROX
   Passes.push_front(std::move(std::make_unique<GEMMApproximation>()));
+#endif
 }
 
 void addPassesToPM(ModulePassManager &MPM) {
   MPM.addPass(createModuleToFunctionPassAdaptor(FunctionApproximation()));
   MPM.addPass(createModuleToFunctionPassAdaptor(LoopPerforation()));
+#ifdef GEMM_APPROX
   MPM.addPass(createModuleToFunctionPassAdaptor(GEMMApproximation()));
+#endif
 }
 
 bool isApproximable(const Function &F) {

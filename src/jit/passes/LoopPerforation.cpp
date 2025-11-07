@@ -44,11 +44,11 @@ bool LoopPerforation::PerforableLoop::isPerforable(Loop *L) {
       continue;
     foundBody = true;
     // not perforable if there's any call to free/delete in a body block
-    if (hasMemoryDealloc(*BI, visited)) {
-      LLVM_DEBUG(dbgs() << "[RAAS] Found BB with memory dealloc in Loop at function "
-                        << BI->getParent()->getName() << '\n';);
-      return false;
-    }
+    //if (hasMemoryDealloc(*BI, visited)) {
+    //  LLVM_DEBUG(dbgs() << "[RAAS] Found BB with memory dealloc in Loop at function "
+    //                    << BI->getParent()->getName() << '\n';);
+    //  return false;
+    //}
   }
 
   // if we still haven't found the body, that means it is part of the

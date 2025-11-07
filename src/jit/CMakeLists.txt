@@ -10,4 +10,4 @@ add_compile_definitions(RUNTIME_PATH="${LLVM_DIR}/../../clang/18/lib/x86_64-unkn
 
 add_library (JIT SHARED JIT.cpp ApproxLayer.cpp ForbiddenApproximations.cpp EvaluationSystem.cpp SimpleEvaluator.cpp misc/CustomDemangler.cpp misc/utils.cpp)
 
-target_link_libraries(JIT PRIVATE ${llvm_libs} Passes "$<LINK_LIBRARY:WHOLE_ARCHIVE,approx_gemm>")
+target_link_libraries(JIT PRIVATE ${llvm_libs} Passes)

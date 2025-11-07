@@ -50,7 +50,7 @@ endif()
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_subdirectory(src/jit)
-add_subdirectory(src/external)
+#add_subdirectory(src/external)
 
 install(TARGETS embedding JIT instrumentFn
   RUNTIME DESTINATION bin

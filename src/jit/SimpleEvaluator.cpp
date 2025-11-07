@@ -327,6 +327,31 @@ std::string SimpleEvaluator::getJSONConfiguration() {
   llvm::raw_string_ostream jsonStream(jsonStr);
   jsonStream << jsonValue;
   jsonStream.flush();
+ 
+  // Temporary: We only want to save JSON state in an array to better read it
+  // Produce an ordered JSON array
+  json::Array orderedOpportunities;
+  for (auto &el : opportunitiesWrapper) {
+    json::Object entry;
+    entry["functionName"] = el.parent->functionName;
+    entry["AT"] = std::to_string(el.AT);
+    entry["index"] = el.index + 1;
+    entry["parameter"] = el.parameter;
+    entry["score"] = el.score;
+    entry["foundOptimal"] = el.foundOptimal;
+    orderedOpportunities.push_back(std::move(entry));
+  }
+
+  json::Value V = std::move(orderedOpportunities);
+  std::error_code EC;
+  llvm::raw_fd_ostream OS("/tmp/raas_temp.json", EC);
+
+  if (EC) {
+    llvm::report_fatal_error(StringRef("Error opening file: " + EC.message()));
+  }
+
+  OS << V;
+  OS.flush();
 
   return jsonStr;
 }
@@ -391,8 +416,9 @@ void SimpleEvaluator::restoreStateFromJSON(StringRef functionName,
         auto optParam = (*optionsInConfig)[0].getAsInteger();
         auto optScore = (*optionsInConfig)[1].getAsNumber();
         auto optBool = (*optionsInConfig)[2].getAsBoolean();
+        fprintf(stderr, "%s\n", fnName.c_str());
         assert(optParam.has_value() && optBool.has_value() &&
-               "Missing info for element in JSON");
+               "Missing info for element in JSON in function %s");
 
         auto optParamValue = optParam.value();
         auto optBoolValue = optBool.value();

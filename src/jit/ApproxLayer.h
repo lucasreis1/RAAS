@@ -137,8 +137,6 @@ private:
   // and letting RAAS recompile the correct symbol as we don't have a sensible
   // way to move a single symbol from one RT to another
   llvm::Error removeUnusedConfigurationSymbols(std::string functionName);
-  // targeting a similar approach from CompileOnDemand
-  StringMap<PerFunctionResources> FunctionNameToResourcesMap;
   // shamelessly stolen from CODLayer
   struct PerDylibResources {
   public:
@@ -153,9 +151,11 @@ private:
     std::unique_ptr<IndirectStubsManager> ISMgr;
   };
   using PerDylibResourcesMap = std::map<const JITDylib *, PerDylibResources>;
+  PerDylibResources &getPerDylibResources(JITDylib &TargetD);
+  // targeting a similar approach from CompileOnDemand
+  StringMap<PerFunctionResources> FunctionNameToResourcesMap;
 
   Expected<PerFunctionResources &> getFunctionResources(std::string function);
-  PerDylibResources &getPerDylibResources(JITDylib &TargetD);
 
   mutable std::mutex ApproxLayerMutex;
 
