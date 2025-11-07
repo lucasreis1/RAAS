@@ -12,6 +12,7 @@
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
+#include <cstdlib>
 
 using namespace llvm;
 
@@ -43,12 +44,15 @@ bool LoopPerforation::PerforableLoop::isPerforable(Loop *L) {
     if (!L->contains(BI) or L->isLoopLatch(BI))
       continue;
     foundBody = true;
-    // not perforable if there's any call to free/delete in a body block
-    //if (hasMemoryDealloc(*BI, visited)) {
-    //  LLVM_DEBUG(dbgs() << "[RAAS] Found BB with memory dealloc in Loop at function "
-    //                    << BI->getParent()->getName() << '\n';);
-    //  return false;
-    //}
+    auto skip_frees = std::getenv("SKIP_FREE");
+    // not perforable if env variable exists and there's any call to free/delete
+    // in a body block
+    if (skip_frees != nullptr and hasMemoryDealloc(*BI, visited)) {
+      LLVM_DEBUG(
+          dbgs() << "[RAAS] Found BB with memory dealloc in Loop at function "
+                 << BI->getParent()->getName() << '\n';);
+      return false;
+    }
   }
 
   // if we still haven't found the body, that means it is part of the
