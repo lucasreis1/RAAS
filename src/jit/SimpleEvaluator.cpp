@@ -416,7 +416,6 @@ void SimpleEvaluator::restoreStateFromJSON(StringRef functionName,
         auto optParam = (*optionsInConfig)[0].getAsInteger();
         auto optScore = (*optionsInConfig)[1].getAsNumber();
         auto optBool = (*optionsInConfig)[2].getAsBoolean();
-        fprintf(stderr, "%s\n", fnName.c_str());
         assert(optParam.has_value() && optBool.has_value() &&
                "Missing info for element in JSON in function %s");
 
