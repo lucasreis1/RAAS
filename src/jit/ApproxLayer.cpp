@@ -28,6 +28,8 @@
 #include "llvm/Transforms/Scalar/Reg2Mem.h"
 #include "llvm/Transforms/Utils/Cloning.h"
 #include "llvm/Transforms/Utils/ValueMapper.h"
+#include <chrono>
+#include <fstream>
 #include <regex>
 #include <utility>
 
@@ -129,6 +131,8 @@ ApproxLayer::ApproxLayer(ExecutionSession &ES, DataLayout &DL,
 void ApproxLayer::emitApprox(
     std::unique_ptr<MaterializationResponsibility> R,
     std::pair<std::string, configurationPerTechniqueMap> nameConfigPair) {
+  auto measureOver = std::getenv("MEASURE_OVERHEAD");
+  auto start = std::chrono::steady_clock::now();
 
   auto &FnName = nameConfigPair.first;
   auto &configuration = nameConfigPair.second;
@@ -175,6 +179,14 @@ void ApproxLayer::emitApprox(
   }
 
   baseLayer.emit(std::move(R), std::move(clonedModule));
+  // measuring overhead
+  if(measureOver) {
+      auto end = std::chrono::steady_clock::now();
+      auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+      std::ofstream output_file(".times.csv", std::ios::app);
+      output_file << "compilation,approx_emit," << elapsed_us.count() << '\n';
+      output_file.close();
+  }
 }
 
 void ApproxLayer::emit(std::unique_ptr<MaterializationResponsibility> R,
@@ -510,6 +522,8 @@ ApproxLayer::approximateModule(ThreadSafeModule TSM, StringRef functionName,
 }
 
 Error ApproxLayer::updateApproximations() {
+  auto measureOver = std::getenv("MEASURE_OVERHEAD");
+  auto start = std::chrono::steady_clock::now();
   auto toUpdateMap = evaluationSystem.updateSuggestedConfigurations();
 
   // iterate over the map, add a (possibly) new approximate version to each
@@ -541,8 +555,24 @@ Error ApproxLayer::updateApproximations() {
       }
     }
 
-    if (auto Err = this->addApproximateVersion(Function, config))
+    if (auto Err = this->addApproximateVersion(Function, config)) {
+      if (measureOver) {
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+        std::ofstream output_file(".times.csv", std::ios::app);
+        output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
+        output_file.close();
+      }
       return Err;
+    }
+    if (measureOver) {
+      auto end = std::chrono::steady_clock::now();
+      auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
+      std::ofstream output_file(".times.csv", std::ios::app);
+      output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
+      output_file.close();
+    }
+
   }
   return Error::success();
 }

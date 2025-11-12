@@ -7,6 +7,9 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include <chrono>
+#include <fstream>
+#include "times.h"
 
 using namespace llvm;
 using namespace llvm::orc;
@@ -99,6 +102,12 @@ Error loadDylibs() {
 }
 
 int main(int argc, char *argv[]) {
+  if (std::getenv("MEASURE_OVERHEAD")) {
+    get_start_time() = std::chrono::steady_clock::now();
+    std::ofstream of(".times.csv", std::ofstream::out | std::ofstream::trunc);
+    of << "type,details,time" <<'\n';
+    of.close();
+  }
   initializeTarget();
 
   // add our options to a specific category

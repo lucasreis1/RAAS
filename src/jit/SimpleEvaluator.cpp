@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <ios>
 #include <sstream>
+#include <chrono>
+#include "../times.h"
 
 // number of repetitions required to test a single configuration
 #define LOOPS_PER_CONFIG 3
@@ -229,6 +231,16 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
       } else {
         fprintf(stdout, "Converged after %d iterations!\n", iterationCount);
         this->foundOptimal = true;
+        auto measureOver = std::getenv("MEASURE_OVERHEAD");
+        if (measureOver) {
+          auto end = std::chrono::steady_clock::now();
+          auto elapsed_us =
+              std::chrono::duration_cast<std::chrono::microseconds>(
+                  end - get_start_time());
+          std::ofstream output_file(".times.csv", std::ios::app);
+          output_file << "convergence_time,_," << elapsed_us.count() << '\n';
+          output_file.close();
+        }
       }
     }
   }

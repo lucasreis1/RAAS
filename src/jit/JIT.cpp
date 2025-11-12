@@ -19,7 +19,9 @@
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Target/TargetMachine.h"
+#include <chrono>
 #include <sys/time.h>
+#include <fstream>
 
 void initializeTarget() {
   llvm::InitializeNativeTarget();
@@ -412,6 +414,8 @@ double getCurrentToD() {
 }
 
 bool ApproxJIT::approxReevaluation() {
+  auto measureOver = std::getenv("MEASURE_OVERHEAD");
+  auto start = std::chrono::steady_clock::now();
   // count iteration time outside RoI
   fullIterationTime = getCurrentToD() - fullIterationTime;
   auto time = ExitOnErr(lookupRoITime());
@@ -448,6 +452,21 @@ bool ApproxJIT::approxReevaluation() {
             getLoopNumber(), time, evaluator.getLastSpeedup(),
             evaluator.getLastError());
 
+    if (measureOver) {
+      auto end = std::chrono::steady_clock::now();
+      auto elapsed_ns =
+          std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+      std::ofstream output_file(".times.csv", std::ios::app);
+      auto converged = evaluator.getConfigEvaluator()->achievedConvergence();
+      std::string to_print;
+      if (converged)
+        to_print = "converged_evaluation,";
+      else
+        to_print = "evaluation,";
+      output_file << "evaluation," << to_print << elapsed_ns.count()
+                  << '\n';
+      output_file.close();
+    }
     // at the end of a loop, call our evaluator heuristic to update the
     // suggested configuration
     ExitOnErr(APLayer.updateApproximations());
