@@ -240,6 +240,8 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           std::ofstream output_file(".times.csv", std::ios::app);
           output_file << "convergence_time,_," << elapsed_us.count() << '\n';
           output_file.close();
+          struct JitEarlyExit {};
+          throw JitEarlyExit();
         }
       }
     }
