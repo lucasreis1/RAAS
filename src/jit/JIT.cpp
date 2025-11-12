@@ -456,7 +456,7 @@ bool ApproxJIT::approxReevaluation() {
       auto end = std::chrono::steady_clock::now();
       auto elapsed_ns =
           std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-      std::ofstream output_file(".times.csv", std::ios::app);
+      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
       auto converged = evaluator.getConfigEvaluator()->achievedConvergence();
       std::string to_print;
       if (converged)

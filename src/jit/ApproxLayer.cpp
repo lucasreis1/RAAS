@@ -183,7 +183,7 @@ void ApproxLayer::emitApprox(
   if(measureOver) {
       auto end = std::chrono::steady_clock::now();
       auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-      std::ofstream output_file(".times.csv", std::ios::app);
+      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
       output_file << "compilation,approx_emit," << elapsed_us.count() << '\n';
       output_file.close();
   }
@@ -559,7 +559,7 @@ Error ApproxLayer::updateApproximations() {
       if (measureOver) {
         auto end = std::chrono::steady_clock::now();
         auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-        std::ofstream output_file(".times.csv", std::ios::app);
+        std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
         output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
         output_file.close();
       }
@@ -568,7 +568,7 @@ Error ApproxLayer::updateApproximations() {
     if (measureOver) {
       auto end = std::chrono::steady_clock::now();
       auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-      std::ofstream output_file(".times.csv", std::ios::app);
+      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
       output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
       output_file.close();
     }

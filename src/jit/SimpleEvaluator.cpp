@@ -237,7 +237,7 @@ void SimpleEvaluator::updateSuggestedConfigurations() {
           auto elapsed_us =
               std::chrono::duration_cast<std::chrono::microseconds>(
                   end - get_start_time());
-          std::ofstream output_file(".times.csv", std::ios::app);
+          std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
           output_file << "convergence_time,_," << elapsed_us.count() << '\n';
           output_file.close();
           struct JitEarlyExit {};
