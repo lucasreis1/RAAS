@@ -32,6 +32,7 @@
 #include <fstream>
 #include <regex>
 #include <utility>
+#include "../times.h"
 
 #define DEBUG_TYPE "raas"
 
@@ -39,6 +40,11 @@ using namespace llvm;
 using namespace orc;
 
 static llvm::ExitOnError exitOnErr;
+
+// just to measure time (placeholders)
+static std::chrono::time_point<std::chrono::steady_clock> update_start; 
+static long update_timeint;
+
 
 class ApproxMaterializationUnit : public MaterializationUnit {
 public:
@@ -183,8 +189,8 @@ void ApproxLayer::emitApprox(
   if(measureOver) {
       auto end = std::chrono::steady_clock::now();
       auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
-      output_file << "compilation,approx_emit," << elapsed_us.count() << '\n';
+      std::ofstream output_file(CSV_FILE, std::ios::app);
+      output_file << "compilation,approx_emit," << elapsed_us.count() << ',' << FnName << '\n';
       output_file.close();
   }
 }
@@ -302,9 +308,21 @@ ApproxLayer::addApproximateVersion(std::string functionName,
       return Err;
     }
 
+    // we are already counting materialization time, don't counting twice
+    if (std::getenv("MEASURE_OVERHEAD")) {
+      auto end = std::chrono::steady_clock::now();
+      update_timeint = std::chrono::duration_cast<std::chrono::microseconds>(
+                           end - update_start)
+                           .count();
+    }
+
     // trigger lookup again to force materialization of the symbol
     exitOnErr(this->lookup(approxJD, mangledSymbName,
                            JITDylibLookupFlags::MatchAllSymbols));
+
+    if (std::getenv("MEASURE_OVERHEAD")) 
+      update_start = std::chrono::steady_clock::now();
+
 
     // create another trampoline to which the new pointer will jump to, to
     // materialize the new version of the function
@@ -523,7 +541,7 @@ ApproxLayer::approximateModule(ThreadSafeModule TSM, StringRef functionName,
 
 Error ApproxLayer::updateApproximations() {
   auto measureOver = std::getenv("MEASURE_OVERHEAD");
-  auto start = std::chrono::steady_clock::now();
+  update_start = std::chrono::steady_clock::now();
   auto toUpdateMap = evaluationSystem.updateSuggestedConfigurations();
 
   // iterate over the map, add a (possibly) new approximate version to each
@@ -558,18 +576,18 @@ Error ApproxLayer::updateApproximations() {
     if (auto Err = this->addApproximateVersion(Function, config)) {
       if (measureOver) {
         auto end = std::chrono::steady_clock::now();
-        auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-        std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
-        output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
+        update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(end-update_start).count();
+        std::ofstream output_file(CSV_FILE, std::ios::app);
+        output_file << "compilation,update_approx," << update_timeint << '\n';
         output_file.close();
       }
       return Err;
     }
     if (measureOver) {
       auto end = std::chrono::steady_clock::now();
-      auto elapsed_ns = std::chrono::duration_cast<std::chrono::microseconds>(end-start);
-      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
-      output_file << "compilation,update_approx," << elapsed_ns.count() << '\n';
+        update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(end-update_start).count();
+      std::ofstream output_file(CSV_FILE, std::ios::app);
+      output_file << "compilation,update_approx," << update_timeint << '\n';
       output_file.close();
     }
 

@@ -104,8 +104,7 @@ Error loadDylibs() {
 int main(int argc, char *argv[]) {
   if (std::getenv("MEASURE_OVERHEAD")) {
     get_start_time() = std::chrono::steady_clock::now();
-    std::ofstream of(".times.csv", std::ofstream::out | std::ofstream::trunc);
-    of << "type,details,time" <<'\n';
+    std::ofstream of(CSV_FILE, std::ofstream::out | std::ofstream::trunc);
     of.close();
   }
   initializeTarget();

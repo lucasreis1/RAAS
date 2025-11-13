@@ -22,6 +22,7 @@
 #include <chrono>
 #include <sys/time.h>
 #include <fstream>
+#include "../times.h"
 
 void initializeTarget() {
   llvm::InitializeNativeTarget();
@@ -440,6 +441,18 @@ bool ApproxJIT::approxReevaluation() {
             getLoopNumber(), BASE_ITERATIONS, time);
   } else if (isOnApproximableLoops()) { // those are the loops where we are
                                         // approximating
+    if (measureOver and firstApproxLoop) {
+      firstApproxLoop = false;
+      auto end = std::chrono::steady_clock::now();
+      std::ofstream output_file(CSV_FILE, std::ios::app);
+      output_file << "initialization_time,_,"
+                  << std::chrono::duration_cast<std::chrono::microseconds>(
+                         end - get_start_time())
+                         .count() << '\n'; 
+      // start counting approx time
+      get_approx_start_time() = std::chrono::steady_clock::now();
+    }
+
     // lookup compare fn from the evaluation file
     auto compareSymb = evalSymbols->compareSymb;
     // find the JIT symbol that points to our error calculation function
@@ -456,10 +469,9 @@ bool ApproxJIT::approxReevaluation() {
       auto end = std::chrono::steady_clock::now();
       auto elapsed_ns =
           std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-      std::ofstream output_file("/tmp/overhead_times.csv", std::ios::app);
-      auto converged = evaluator.getConfigEvaluator()->achievedConvergence();
+      std::ofstream output_file(CSV_FILE, std::ios::app);
       std::string to_print;
-      if (converged)
+      if (evaluator.getConfigEvaluator()->achievedConvergence())
         to_print = "converged_evaluation,";
       else
         to_print = "evaluation,";

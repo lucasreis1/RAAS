@@ -72,6 +72,7 @@ private:
   const DataLayout &getDataLayout() const { return DL; }
 
   int numberOfLoops = 0;
+  bool firstApproxLoop = true;
 
   // Loop maths for evaluation
   bool isOnSkippableLoops() { return numberOfLoops < SKIPPABLE_LOOPS; }
