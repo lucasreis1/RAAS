@@ -575,24 +575,15 @@ Error ApproxLayer::updateApproximations() {
       }
     }
 
-    if (auto Err = this->addApproximateVersion(Function, config)) {
-      if (measureOver) {
-        auto end = std::chrono::steady_clock::now();
-        update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(end-update_start).count();
-        std::ofstream output_file(CSV_FILE, std::ios::app);
-        output_file << "compilation,update_approx," << update_timeint << '\n';
-        output_file.close();
-      }
+    if (auto Err = this->addApproximateVersion(Function, config))
       return Err;
-    }
-    if (measureOver) {
-      auto end = std::chrono::steady_clock::now();
-        update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(end-update_start).count();
-      std::ofstream output_file(CSV_FILE, std::ios::app);
-      output_file << "compilation,update_approx," << update_timeint << '\n';
-      output_file.close();
-    }
-
+  }
+  if (measureOver) {
+    auto end = std::chrono::steady_clock::now();
+      update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(end-update_start).count();
+    std::ofstream output_file(CSV_FILE, std::ios::app);
+    output_file << "compilation,update_approx," << update_timeint << '\n';
+    output_file.close();
   }
   return Error::success();
 }
