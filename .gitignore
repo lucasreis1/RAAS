@@ -7,3 +7,4 @@ evaluation
 inputs
 tests
 .jit_time.txt
+build_*/

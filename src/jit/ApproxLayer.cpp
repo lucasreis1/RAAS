@@ -311,7 +311,7 @@ ApproxLayer::addApproximateVersion(std::string functionName,
     // we are already counting materialization time, don't counting twice
     if (std::getenv("MEASURE_OVERHEAD")) {
       auto end = std::chrono::steady_clock::now();
-      update_timeint = std::chrono::duration_cast<std::chrono::microseconds>(
+      update_timeint += std::chrono::duration_cast<std::chrono::microseconds>(
                            end - update_start)
                            .count();
     }
@@ -542,6 +542,8 @@ ApproxLayer::approximateModule(ThreadSafeModule TSM, StringRef functionName,
 Error ApproxLayer::updateApproximations() {
   auto measureOver = std::getenv("MEASURE_OVERHEAD");
   update_start = std::chrono::steady_clock::now();
+  update_timeint = 0;
+  
   auto toUpdateMap = evaluationSystem.updateSuggestedConfigurations();
 
   // iterate over the map, add a (possibly) new approximate version to each
